@@ -207,6 +207,72 @@ impl Database {
         let args=if search.is_empty()||filters.is_empty(){vec![]}else{vec![Value::Text(pattern);filters.len()]};
         query_conn(&conn,&sql,&args)
     }
+    /// Run a consistency check and return a bounded result suitable for the UI and AI tools.
+    pub fn integrity_check(&self)->Result<String,String>{
+        let conn=self.conn()?;
+        let result:String=conn.query_row("PRAGMA integrity_check",[],|r|r.get(0)).map_err(db_error)?;
+        Ok(result)
+    }
+    /// Copy a live SQLite database consistently. Existing files are NEVER overwritten.
+    /// SQLite VACUUM INTO makes a coherent snapshot even when the source uses WAL.
+    pub fn backup(&self,destination:&str)->Result<(),String>{
+        let dst=normalized_path(destination)?;
+        if dst.exists(){return Err("Backup destination already exists".into());}
+        if self.path.as_ref().is_some_and(|p|p == &dst){return Err("Cannot back up onto the active database".into());}
+        let conn=self.conn()?;
+        conn.execute("VACUUM INTO ?1",[dst.to_string_lossy().as_ref()]).map_err(db_error)?;
+        Ok(())
+    }
+    /// Bounded, RFC-compatible CSV export of an entire table, not only the visible page.
+    pub fn export_table_csv(&self,table:&str)->Result<String,String>{
+        valid_name(table)?;
+        let conn=self.conn()?;
+        let fields=self.fields_from(&conn,table)?;
+        if fields.is_empty(){return Err("Table does not exist".into());}
+        let count:i64=conn.query_row(&format!("SELECT COUNT(*) FROM {}",quote(table)),[],|r|r.get(0)).map_err(db_error)?;
+        if count>MAX_IMPORT_ROWS as i64{return Err("CSV export is limited to 10,000 records".into());}
+        let mut statement=conn.prepare(&format!("SELECT * FROM {} ORDER BY id",quote(table))).map_err(db_error)?;
+        let columns=statement.column_names().iter().map(|x|x.to_string()).collect::<Vec<_>>();
+        let mut writer=csv::Writer::from_writer(Vec::new());
+        writer.write_record(&columns).map_err(|e|e.to_string())?;
+        let mut rows=statement.query([]).map_err(db_error)?;
+        let mut exported=0usize;
+        while let Some(row)=rows.next().map_err(db_error)? {
+            exported+=1;
+            if exported>MAX_IMPORT_ROWS{return Err("CSV export exceeds 10,000 records".into());}
+            let cells=(0..columns.len()).map(|i|{
+                let value=row.get_ref(i).map_err(db_error)?;
+                Ok::<String,String>(match value{
+                    rusqlite::types::ValueRef::Null=>String::new(),
+                    rusqlite::types::ValueRef::Integer(n)=>n.to_string(),
+                    rusqlite::types::ValueRef::Real(n)=>n.to_string(),
+                    rusqlite::types::ValueRef::Text(t)=>String::from_utf8_lossy(t).into_owned(),
+                    rusqlite::types::ValueRef::Blob(b)=>format!("[BLOB {} bytes]",b.len()),
+                })
+            }).collect::<Result<Vec<_>,_>>()?;
+            writer.write_record(cells).map_err(|e|e.to_string())?;
+        }
+        String::from_utf8(writer.into_inner().map_err(|e|e.to_string())?).map_err(|e|e.to_string())
+    }
+    /// Read-only grouped report. The table and field names must exist in the schema.
+    pub fn group_report(&self,table:&str,group_field:&str,metric_field:Option<&str>)->Result<QueryResult,String>{
+        valid_name(table)?;valid_name(group_field)?;
+        let conn=self.conn()?;
+        let fields=self.fields_from(&conn,table)?;
+        if !fields.iter().any(|f|f.name==group_field){return Err("Grouping field not found".into());}
+        let mut columns=vec![format!("{} AS category",quote(group_field)),"COUNT(*) AS records".into()];
+        if let Some(metric)=metric_field{
+            valid_name(metric)?;
+            let field=fields.iter().find(|f|f.name==metric).ok_or("Metric field not found")?;
+            if !["INTEGER","REAL"].contains(&field.kind.to_ascii_uppercase().as_str()){
+                return Err("Metrics require INTEGER or REAL fields".into());
+            }
+            columns.push(format!("SUM({}) AS total",quote(metric)));
+            columns.push(format!("AVG({}) AS average",quote(metric)));
+        }
+        let sql=format!("SELECT {} FROM {} GROUP BY {} ORDER BY records DESC, category LIMIT {}",columns.join(","),quote(table),quote(group_field),MAX_ROWS+1);
+        query_conn(&conn,&sql,&[])
+    }
     /// SELECT/WITH only: rejects multiple statements and all writes, including writable CTEs.
     pub fn select(&self,sql:&str)->Result<QueryResult,String>{
         if sql.len()>32_768{return Err("SQL exceeds 32 KiB".into());}
@@ -254,6 +320,25 @@ fn query_conn(conn:&Connection,sql:&str,values:&[Value])->Result<QueryResult,Str
         assert!(db.delete_index("sqlite_autoindex_people_1").is_err());
         db.delete_index(&idx).unwrap();assert!(db.indexes("people").unwrap().is_empty());
         std::fs::remove_file(path).unwrap();
+    }
+    #[test] fn backup_reports_and_full_export(){
+        let(db,path)=temp();
+        db.create_table("records",vec![Field{name:"category".into(),kind:"TEXT".into(),required:true},Field{name:"amount".into(),kind:"REAL".into(),required:false}]).unwrap();
+        db.import_csv("records","category,amount\nКниги,12.5\nКниги,7.5\nКофе,3\n").unwrap();
+        assert_eq!(db.integrity_check().unwrap(),"ok");
+        let report=db.group_report("records","category",Some("amount")).unwrap();
+        assert_eq!(report.rows[0][1],2);
+        assert_eq!(report.rows[0][2],20.0);
+        assert!(db.group_report("records","category",Some("category")).is_err());
+        assert!(db.group_report("records","missing",None).is_err());
+        let csv=db.export_table_csv("records").unwrap();
+        assert!(csv.contains("Книги,12.5"));
+        let destination=path.with_file_name(format!("backup-{}",path.file_name().unwrap().to_string_lossy()));
+        db.backup(destination.to_str().unwrap()).unwrap();
+        assert!(db.backup(destination.to_str().unwrap()).is_err());
+        let mut restored=Database::default();restored.open(destination.to_str().unwrap()).unwrap();
+        assert_eq!(restored.tables().unwrap()[0].count,3);
+        std::fs::remove_file(destination).unwrap();std::fs::remove_file(path).unwrap();
     }
     #[test] fn pagination_cap(){let(db,path)=temp();db.create_table("items",vec![Field{name:"label".into(),kind:"TEXT".into(),required:false}]).unwrap();let conn=db.conn().unwrap();let tx=conn.unchecked_transaction().unwrap();for _ in 0..501{tx.execute("INSERT INTO items (label) VALUES ('x')",[]).unwrap();}tx.commit().unwrap();let r=db.browse("items",None).unwrap();assert_eq!(r.rows.len(),500);assert!(r.truncated);drop(conn);std::fs::remove_file(path).unwrap();}
 }

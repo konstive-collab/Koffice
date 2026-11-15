@@ -1,3 +1,7 @@
+## v0.6 alpha
+
+Database diagnostics (`PRAGMA integrity_check`), safe SQLite `VACUUM INTO` backups, full-table CSV export (up to 10,000 rows) and grouped read-only COUNT/SUM/AVG reports are available through Base UI and typed Tauri commands. The Windows installer version is numeric to satisfy MSI packaging rules. Other Office-native format support is not yet implemented.
+
 # Koffice ☕ — open-source, AI-native office suite
 
 **Koffice** is a local-first office suite built in **Rust + Tauri**. This community alpha ships three early editors sharing a Rust backend. The goal is robust document processing from both the desktop interface and AI agents using the same typed commands.

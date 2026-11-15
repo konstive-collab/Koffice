@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Koffice",
-  "version": "0.5.0-alpha.1",
+  "version": "0.6.0",
   "identifier": "dev.kodi.koffice",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Koffice \u2014 Writer \u00b7 Sheets \u00b7 Slides \u00b7 Base",
+        "title": "Koffice — Writer · Sheets · Slides · Base",
         "width": 1260,
         "height": 820,
         "minWidth": 780,
@@ -26,7 +26,10 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": [
+      "nsis",
+      "msi"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

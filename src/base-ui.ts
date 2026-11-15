@@ -31,6 +31,38 @@ export class BaseUI {
     const url=URL.createObjectURL(new Blob([output],{type:'text/csv;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download=(this.table??'query')+'.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
     if(r.truncated)this.notice('CSV contains only the first 500 returned rows');
   }
+  private downloadCsv(content:string,name:string){
+    const url=URL.createObjectURL(new Blob(['\ufeff',content],{type:'text/csv;charset=utf-8'}));
+    const a=document.createElement('a');a.href=url;a.download=name;a.click();
+    setTimeout(()=>URL.revokeObjectURL(url),1000);
+  }
+  async exportEntireTable(){
+    if(!this.table)return;
+    const csv=await invoke<string>('base_export_table_csv',{table:this.table});
+    this.downloadCsv(csv,`${this.table}.csv`);
+  }
+  async backup(){
+    if(!this.path)return;
+    const destination=await save({defaultPath:'Koffice-backup.kdb',filters:[{name:'Koffice Base',extensions:['kdb']}]});
+    if(!destination)return;
+    await invoke('base_backup',{destination});this.notice('Database backup created');
+  }
+  async checkIntegrity(){
+    const result=await invoke<string>('base_integrity_check');
+    this.notice(result==='ok'?'SQLite database integrity: OK':`Integrity check: ${result}`);
+  }
+  async showReport(){
+    if(!this.table)return;
+    const table=this.tables.find(t=>t.name===this.table);
+    if(!table)return;
+    const groupField=window.prompt(`Group by field: ${table.fields.map(f=>f.name).join(', ')}`,table.fields.find(f=>f.name!=='id')?.name??'id');
+    if(!groupField)return;
+    const metric=window.prompt('Numeric field for SUM and AVG (leave blank for COUNT only)','');
+    if(metric===null)return;
+    this.results=await invoke<Query>('base_group_report',{table:this.table,groupField,metricField:metric||null});
+    this.query=`Report: ${groupField}${metric?` / ${metric}`:''}`;
+    this.render();
+  }
   async importCsv(file:File){
     if(!this.table)return;
     if(file.size>5_000_000)throw Error('CSV exceeds 5 MB');
@@ -69,12 +101,16 @@ export class BaseUI {
   render(){const root=byId('canvas');if(!this.path){root.innerHTML=`<div class="base-empty"><h2>Koffice Base</h2><p>Create or open a .kdb database to manage structured information, records, and read-only SQL reports.</p><button id="base-new">＋ Create database</button><button id="base-open">Open database</button></div>`;
       byId('base-new').onclick=()=>void this.task(()=>this.create());byId('base-open').onclick=()=>void this.task(()=>this.open());return;}
     const r=this.results;const idCol=r?.columns.indexOf('id')??-1;
-    root.innerHTML=`<div class="base-app"><aside class="base-tables"><div class="base-group">DATABASE TABLES</div>${this.tables.map(t=>`<button class="base-table ${this.table===t.name?'current':''}" data-table="${html(t.name)}">${html(t.name)} <small>${t.count}</small></button>`).join('')}<button class="base-create" id="base-create-table">＋ New table</button><div class="base-meta">${html(this.path)}</div></aside><div class="base-work"><header class="base-actions"><b>${html(this.table??'Database')}</b><span>${this.tables.length} tables</span><button id="base-add" ${this.table?'':'disabled'}>＋ Record</button><input id="base-search" placeholder="Search text columns" aria-label="Search rows" ${this.table?'':'disabled'}><button id="base-search-go">Search</button><button id="base-reload">Reload</button><button id="base-import">Import CSV</button><input id="base-csv-file" type="file" accept=".csv,text/csv" hidden><button id="base-to-sheets">To Sheets</button><button id="base-index">＋ Index</button></header><div class="base-grid">${r?`<table><thead><tr>${r.columns.map(c=>`<th>${html(c)}</th>`).join('')}<th>Actions</th></tr></thead><tbody>${r.rows.map(row=>`<tr>${row.map(v=>`<td title="${html(v)}">${html(v)}</td>`).join('')}<td>${idCol<0?'':`<button data-edit="${Number(row[idCol])}">Edit</button><button data-delete="${Number(row[idCol])}">Delete</button>`}</td></tr>`).join('')}</tbody></table>`:'<p>Select a table or write a query.</p>'}</div><div class="base-footer">${r?`${this.offset+1}–${this.offset+r.rows.length} rows${r.truncated?' · More available':''}`:'No result'} <button id="base-prev" ${this.offset===0?'disabled':''}>← Previous</button><button id="base-next" ${!r?.truncated?'disabled':''}>Next →</button></div><div class="base-indexes"><strong>Indexes</strong> ${this.indexes.map(i=>`<span>${html(i.name)} (${html(i.columns.join(', '))}) ${i.unique?'UNIQUE':''} <button data-drop-index="${html(i.name)}">×</button></span>`).join('')||'<small>No indexes</small>'}</div><div class="base-query"><label for="base-sql">SQL Explorer <small>read-only SELECT / WITH, up to 500 rows</small></label><textarea id="base-sql" spellcheck="false" placeholder="SELECT * FROM contacts LIMIT 20">${html(this.query)}</textarea><button id="base-run-sql">Run query</button></div></div></div>`;
+    root.innerHTML=`<div class="base-app"><aside class="base-tables"><div class="base-group">DATABASE TABLES</div>${this.tables.map(t=>`<button class="base-table ${this.table===t.name?'current':''}" data-table="${html(t.name)}">${html(t.name)} <small>${t.count}</small></button>`).join('')}<button class="base-create" id="base-create-table">＋ New table</button><div class="base-meta">${html(this.path)}</div></aside><div class="base-work"><header class="base-actions"><b>${html(this.table??'Database')}</b><span>${this.tables.length} tables</span><button id="base-add" ${this.table?'':'disabled'}>＋ Record</button><input id="base-search" placeholder="Search text columns" aria-label="Search rows" ${this.table?'':'disabled'}><button id="base-search-go">Search</button><button id="base-reload">Reload</button><button id="base-import">Import CSV</button><input id="base-csv-file" type="file" accept=".csv,text/csv" hidden><button id="base-to-sheets">To Sheets</button><button id="base-export-all">Export table CSV</button><button id="base-report">Group report</button><button id="base-backup">Backup</button><button id="base-check">Check DB</button><button id="base-index">＋ Index</button></header><div class="base-grid">${r?`<table><thead><tr>${r.columns.map(c=>`<th>${html(c)}</th>`).join('')}<th>Actions</th></tr></thead><tbody>${r.rows.map(row=>`<tr>${row.map(v=>`<td title="${html(v)}">${html(v)}</td>`).join('')}<td>${idCol<0?'':`<button data-edit="${Number(row[idCol])}">Edit</button><button data-delete="${Number(row[idCol])}">Delete</button>`}</td></tr>`).join('')}</tbody></table>`:'<p>Select a table or write a query.</p>'}</div><div class="base-footer">${r?`${this.offset+1}–${this.offset+r.rows.length} rows${r.truncated?' · More available':''}`:'No result'} <button id="base-prev" ${this.offset===0?'disabled':''}>← Previous</button><button id="base-next" ${!r?.truncated?'disabled':''}>Next →</button></div><div class="base-indexes"><strong>Indexes</strong> ${this.indexes.map(i=>`<span>${html(i.name)} (${html(i.columns.join(', '))}) ${i.unique?'UNIQUE':''} <button data-drop-index="${html(i.name)}">×</button></span>`).join('')||'<small>No indexes</small>'}</div><div class="base-query"><label for="base-sql">SQL Explorer <small>read-only SELECT / WITH, up to 500 rows</small></label><textarea id="base-sql" spellcheck="false" placeholder="SELECT * FROM contacts LIMIT 20">${html(this.query)}</textarea><button id="base-run-sql">Run query</button></div></div></div>`;
     document.querySelectorAll<HTMLButtonElement>('[data-table]').forEach(b=>b.onclick=()=>void this.task(async()=>{this.table=b.dataset.table!;this.query='';this.offset=0;this.currentSearch='';await this.load();}));
     byId('base-create-table').onclick=()=>void this.task(()=>this.createTable());byId('base-add').onclick=()=>void this.task(()=>this.addRow());byId('base-reload').onclick=()=>void this.task(()=>this.load());byId('base-run-sql').onclick=()=>void this.task(()=>this.sql());
     byId('base-import').onclick=()=>byId('base-csv-file').click();
     (byId('base-csv-file') as HTMLInputElement).onchange=e=>{const file=(e.target as HTMLInputElement).files?.[0];if(file)void this.task(()=>this.importCsv(file));};
     byId('base-to-sheets').onclick=()=>void this.task(()=>this.sendToSheets());
+    byId('base-export-all').onclick=()=>void this.task(()=>this.exportEntireTable());
+    byId('base-report').onclick=()=>void this.task(()=>this.showReport());
+    byId('base-backup').onclick=()=>void this.task(()=>this.backup());
+    byId('base-check').onclick=()=>void this.task(()=>this.checkIntegrity());
     byId('base-index').onclick=()=>void this.task(()=>this.indexCreate());
     byId('base-prev').onclick=()=>void this.task(()=>this.nextPage(-1));
     byId('base-next').onclick=()=>void this.task(()=>this.nextPage(1));

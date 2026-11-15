@@ -55,6 +55,11 @@ fn lock<T>(mutex:&Mutex<T>)->Result<std::sync::MutexGuard<'_,T>,String>{mutex.lo
 #[tauri::command] fn base_delete_index(s:State<'_,Workspace>,name:String)->Result<(),String>{lock(&s.base)?.delete_index(&name)}
 #[tauri::command] fn base_browse_page(s:State<'_,Workspace>,table:String,search:Option<String>,offset:usize)->Result<QueryResult,String>{lock(&s.base)?.browse_page(&table,search,offset)}
 
+#[tauri::command] fn base_integrity_check(s:State<'_,Workspace>)->Result<String,String>{lock(&s.base)?.integrity_check()}
+#[tauri::command] fn base_backup(s:State<'_,Workspace>,destination:String)->Result<(),String>{lock(&s.base)?.backup(&destination)}
+#[tauri::command] fn base_export_table_csv(s:State<'_,Workspace>,table:String)->Result<String,String>{lock(&s.base)?.export_table_csv(&table)}
+#[tauri::command] fn base_group_report(s:State<'_,Workspace>,table:String,group_field:String,metric_field:Option<String>)->Result<QueryResult,String>{lock(&s.base)?.group_report(&table,&group_field,metric_field.as_deref())}
+
 /// Snapshot a database table into Sheets using a single workbook revision.
 #[tauri::command] fn base_to_workbook(s:State<'_,Workspace>,table:String)->Result<SheetBook,String>{
     let rows=lock(&s.base)?.browse_page(&table,None,0)?;
@@ -78,4 +83,4 @@ fn cell_address(row:usize,mut col:usize)->String{
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run(){tauri::Builder::default().plugin(tauri_plugin_dialog::init()).manage(Workspace{writer:Mutex::new(Document::blank()),sheets:Mutex::new(SheetBook::blank()),slides:Mutex::new(Deck::blank()),base:Mutex::new(Database::default())}).invoke_handler(tauri::generate_handler![snapshot,new_document,edit_document,rename_document,open_document,save_document,workbook_snapshot,workbook_new,workbook_put,workbook_add_sheet,workbook_put_batch,workbook_rename_sheet,workbook_delete_sheet,workbook_value,workbook_open,workbook_save,deck_snapshot,deck_new,deck_add,deck_update,deck_delete,deck_duplicate,deck_move,deck_open,deck_save,base_path,base_create,base_open,base_tables,base_create_table,base_insert,base_update,base_delete,base_browse,base_select,base_import_csv,base_indexes,base_create_index,base_delete_index,base_browse_page,base_to_workbook]).run(tauri::generate_context!()).expect("Failed to start Koffice")}
+pub fn run(){tauri::Builder::default().plugin(tauri_plugin_dialog::init()).manage(Workspace{writer:Mutex::new(Document::blank()),sheets:Mutex::new(SheetBook::blank()),slides:Mutex::new(Deck::blank()),base:Mutex::new(Database::default())}).invoke_handler(tauri::generate_handler![snapshot,new_document,edit_document,rename_document,open_document,save_document,workbook_snapshot,workbook_new,workbook_put,workbook_add_sheet,workbook_put_batch,workbook_rename_sheet,workbook_delete_sheet,workbook_value,workbook_open,workbook_save,deck_snapshot,deck_new,deck_add,deck_update,deck_delete,deck_duplicate,deck_move,deck_open,deck_save,base_path,base_create,base_open,base_tables,base_create_table,base_insert,base_update,base_delete,base_browse,base_select,base_import_csv,base_indexes,base_create_index,base_delete_index,base_browse_page,base_to_workbook,base_integrity_check,base_backup,base_export_table_csv,base_group_report]).run(tauri::generate_context!()).expect("Failed to start Koffice")}
