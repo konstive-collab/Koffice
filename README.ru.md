@@ -68,3 +68,11 @@ SQLite-based `.kdb` databases with a native Rust API: create/open, typed schemas
 These features are experimental and do not yet provide Access file compatibility or graphical relational forms. Save backup copies before using early alpha builds.
 
 CI includes a Windows desktop build job. If successful, Windows installers are downloadable from the corresponding GitHub Actions run artifacts (not a signed release).
+
+## v0.7: локальный Automation API (экспериментальный)
+
+Кнопка **Automation API** открывает локальную панель выполнения команд JSON с подтверждением пользователя. Это пока **не MCP-сервер и не Python SDK**. Движок Rust выполняет операции с Writer, Sheets и Slides в одной транзакции (1–50 операций); при ошибке весь пакет откатывается. Запись в файлы и операции Koffice Base в эту транзакцию не входят.
+
+Поддерживаются команды `writer_edit`, `sheets_put_batch`, `sheets_add_sheet`, `sheets_rename_sheet`, `slides_add`, `slides_update`, `slides_duplicate`. Для каждой нужно указывать текущую ревизию документа. Ревизии доступны в снимке состояния.
+
+В Sheets появились поиск по книге и статистика числовых данных (сумма, минимум, максимум, среднее, число формул). Writer и Slides теперь умеют экспортировать простые автономные HTML-файлы. Полноценная совместимость с DOCX/XLSX/PPTX ещё не готова.

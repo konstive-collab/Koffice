@@ -6,3 +6,13 @@
 
 /* Base power tools: horizontal scrolling avoids hiding actions on narrow screens */
 .base-actions{flex-wrap:wrap;gap:8px}.base-indexes{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:9px 16px;border-top:1px solid var(--border,#383838);font-size:12px}.base-indexes span{padding:4px 8px;border:1px solid #4a4a4a;border-radius:6px}.base-footer button{margin-left:8px}
+
+/* AI-safe local automation console */
+.automation-overlay:not([hidden]){position:fixed;inset:0;z-index:100;background:rgba(0,0,0,.78);display:flex;align-items:center;justify-content:center;padding:24px}
+.automation-overlay[hidden]{display:none!important}
+.automation-panel{background:#191c22;border:1px solid #434a55;border-radius:16px;width:min(780px,96vw);max-height:90vh;padding:20px;display:flex;flex-direction:column;gap:12px;box-shadow:0 16px 60px #0009;color:#f4f4f4}
+.automation-head,.automation-actions{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.automation-panel p{font-size:13px;color:#aeb5c0;line-height:1.5;margin:0}
+.automation-panel textarea{min-height:150px;max-height:34vh;resize:vertical;border:1px solid #434a55;border-radius:8px;padding:12px;background:#101318;color:#e5eadf;font:13px/1.5 monospace}
+.automation-panel pre{font:12px/1.45 monospace;white-space:pre-wrap;overflow:auto;min-height:70px;max-height:25vh;padding:12px;background:#101318;border-radius:8px}
+.automation-actions button,.automation-head button{border-radius:8px;padding:8px 12px;background:#303741;border:1px solid #4a5360;color:inherit;cursor:pointer}

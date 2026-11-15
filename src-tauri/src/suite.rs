@@ -33,7 +33,63 @@ pub struct Deck {
 #[serde(deny_unknown_fields)]
 pub struct Slide { pub title: String, pub body: String, pub notes: String }
 
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct CellMatch { pub sheet: usize, pub address: String, pub value: String }
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct SheetStatistics {
+    pub populated: usize,
+    pub numeric: usize,
+    pub formulas: usize,
+    pub sum: f64,
+    pub average: Option<f64>,
+    pub minimum: Option<f64>,
+    pub maximum: Option<f64>,
+}
+
 impl SheetBook {
+    /// Non-destructive, case-insensitive search across all sheets.
+    pub fn find_cells(&self, needle: &str, limit: usize) -> Result<Vec<CellMatch>, String> {
+        if needle.trim().is_empty() || needle.chars().count() > 256 || limit == 0 || limit > 500 {
+            return Err("Search needs 1–256 characters and a result limit of 1–500".into());
+        }
+        let needle = needle.to_lowercase();
+        let mut matches = Vec::new();
+        for (sheet, tab) in self.sheets.iter().enumerate() {
+            for (address, value) in &tab.cells {
+                if value.to_lowercase().contains(&needle) {
+                    matches.push(CellMatch { sheet, address: address.clone(), value: value.clone() });
+                    if matches.len() == limit { return Ok(matches); }
+                }
+            }
+        }
+        Ok(matches)
+    }
+    /// Read-only numerical profile of one sheet; formula errors are ignored as nonnumeric.
+    pub fn statistics(&self, sheet: usize) -> Result<SheetStatistics, String> {
+        let tab = self.sheets.get(sheet).ok_or("Sheet not found")?;
+        let mut n = 0usize;
+        let mut sum = 0.0_f64;
+        let mut min: Option<f64> = None;
+        let mut max: Option<f64> = None;
+        let mut formulas = 0;
+        for (address, raw) in &tab.cells {
+            if raw.starts_with('=') { formulas += 1; }
+            if let Ok(number) = self.value(sheet, address).unwrap_or_default().parse::<f64>() {
+                if number.is_finite() {
+                    sum += number;
+                    n += 1;
+                    min = Some(min.map_or(number, |m| m.min(number)));
+                    max = Some(max.map_or(number, |m| m.max(number)));
+                }
+            }
+        }
+        Ok(SheetStatistics {
+            populated: tab.cells.len(), numeric: n, formulas,
+            sum, average: (n > 0).then_some(sum / n.max(1) as f64),
+            minimum: min, maximum: max,
+        })
+    }
     pub fn blank() -> Self { Self { format: "koffice.sheets.v1".into(), title: "Untitled workbook".into(), revision: 0, sheets: vec![Sheet { name: "Sheet 1".into(), cells: BTreeMap::new() }] } }
     pub fn validate(&self) -> Result<(), String> {
         if self.format != "koffice.sheets.v1" { return Err("Unsupported workbook format".into()); }
@@ -243,4 +299,17 @@ pub fn save_json<T:Serialize>(path:&Path,object:&T)->Result<(),String> {
  #[test] fn aggregates_ignore_nonnumeric_and_reject_empty_average(){let mut b=SheetBook::blank();b.put(0,0,"A1".into(),"3".into()).unwrap();b.put(1,0,"A2".into(),"7".into()).unwrap();b.put(2,0,"A3".into(),"hello".into()).unwrap();for (i,(formula,result)) in [("=AVERAGE(A1:A3)","5"),("=COUNT(A1:A3)","2"),("=MIN(A1:A3)","3"),("=MAX(A1:A3)","7")].iter().enumerate(){let address=format!("B{}",i+1);b.put(b.revision,0,address.clone(),formula.to_string()).unwrap();assert_eq!(b.value(0,&address).unwrap(),*result);}b.put(b.revision,0,"C1".into(),"=AVERAGE(D1:D2)".into()).unwrap();assert!(b.value(0,"C1").is_err());}
  #[test] fn sheet_management_and_slide_reorder(){let mut b=SheetBook::blank();b.add_sheet(0,"Second".into()).unwrap();b.rename_sheet(1,1,"Renamed".into()).unwrap();assert_eq!(b.sheets[1].name,"Renamed");b.delete_sheet(2,0).unwrap();assert!(b.delete_sheet(3,0).is_err());let mut d=Deck::blank();d.add(0).unwrap();d.duplicate(1,0).unwrap();assert_eq!(d.slides.len(),3);d.move_slide(2,0,2).unwrap();assert_eq!(d.slides[2].title,"Title slide");}
  #[test] fn validation_rejects_duplicate_sheet_names(){let mut b=SheetBook::blank(); assert!(b.add_sheet(0,"sheet 1".into()).is_err());}
+ #[test] fn search_matches_without_mutation() {
+   let mut b=SheetBook::blank();b.put(0,0,"A1".into(),"Привет".into()).unwrap();b.put(1,0,"B2".into(),"hello".into()).unwrap();
+   let before=b.clone();let found=b.find_cells("ПРИ",10).unwrap();
+   assert_eq!(found.len(),1);assert_eq!(found[0].address,"A1");assert_eq!(b,before);
+   assert!(b.find_cells("",10).is_err());
+ }
+ #[test] fn statistics_include_numeric_formula_values() {
+   let mut b=SheetBook::blank();b.put(0,0,"A1".into(),"10".into()).unwrap();b.put(1,0,"A2".into(),"20".into()).unwrap();
+   b.put(2,0,"B1".into(),"=SUM(A1:A2)".into()).unwrap();b.put(3,0,"C1".into(),"text".into()).unwrap();
+   let r=b.statistics(0).unwrap();assert_eq!((r.populated,r.numeric,r.formulas),(4,3,1));
+   assert_eq!(r.sum,60.0);assert_eq!(r.average,Some(20.0));
+ }
+
 }

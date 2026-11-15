@@ -91,3 +91,26 @@ SQLite-based `.kdb` databases with a native Rust API: create/open, typed schemas
 These features are experimental and do not yet provide Access file compatibility or graphical relational forms. Save backup copies before using early alpha builds.
 
 CI includes a Windows desktop build job. If successful, Windows installers are downloadable from the corresponding GitHub Actions run artifacts (not a signed release).
+
+## v0.7: local Automation API (experimental)
+
+The **Automation API** toolbar button opens an opt-in local JSON console. It is not a network service, MCP server, or installed Python SDK. Every command is executed by the same Rust document engines as the UI. The supported operations are `writer_edit`, `sheets_put_batch`, `sheets_add_sheet`, `sheets_rename_sheet`, `slides_add`, `slides_update`, and `slides_duplicate`.
+
+A snapshot reveals current document revisions. Transactions can include 1–50 operations. Every operation must supply the expected revision of its target workspace. If any operation fails, none of the Writer/Sheets/Slides changes in that batch are committed. This does **not** span database transactions (Koffice Base), on-disk saves, or external processes. A user must explicitly confirm execution in the desktop UI.
+
+Example JSON to enter in **Automation API** on a freshly created workbook:
+
+```json
+{
+  "operations": [
+    {"type": "sheets_put_batch", "expected_revision": 0, "sheet": 0, "updates": {"A1": "Koffice", "B1": "Automation"}},
+    {"type": "sheets_add_sheet", "expected_revision": 1, "name": "Summary"}
+  ]
+}
+```
+
+New Sheets read-only capabilities include `workbook_find` (case-insensitive workbook-wide search) and `workbook_statistics` (numeric profile with sum, min, max, mean, and formula count). Writer and Slides additionally export self-contained HTML (text-only; rich DOCX/PPTX fidelity is not supported).
+
+### Build validation
+
+Run `npm test`, `npm run build`, and `cargo test --manifest-path src-tauri/Cargo.toml`. CI includes Windows packaging. This is early alpha: do not use for critical documents without backups.

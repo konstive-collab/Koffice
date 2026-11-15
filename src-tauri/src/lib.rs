@@ -1,6 +1,7 @@
 mod engine;
 mod suite;
 mod base;
+mod automation;
 use engine::{Document, Edit};
 use suite::{Deck, SheetBook, Slide};
 use std::{path::Path, sync::Mutex};
@@ -25,6 +26,8 @@ fn lock<T>(mutex:&Mutex<T>)->Result<std::sync::MutexGuard<'_,T>,String>{mutex.lo
 #[tauri::command] fn workbook_rename_sheet(s:State<'_,Workspace>,expected_revision:u64,index:usize,name:String)->Result<SheetBook,String>{let mut d=lock(&s.sheets)?;d.rename_sheet(expected_revision,index,name)?;Ok(d.clone())}
 #[tauri::command] fn workbook_delete_sheet(s:State<'_,Workspace>,expected_revision:u64,index:usize)->Result<SheetBook,String>{let mut d=lock(&s.sheets)?;d.delete_sheet(expected_revision,index)?;Ok(d.clone())}
 #[tauri::command] fn workbook_value(s:State<'_,Workspace>,sheet:usize,address:String)->Result<String,String>{lock(&s.sheets)?.value(sheet,&address)}
+#[tauri::command] fn workbook_find(s:State<'_,Workspace>,needle:String)->Result<Vec<suite::CellMatch>,String>{lock(&s.sheets)?.find_cells(&needle,100)}
+#[tauri::command] fn workbook_statistics(s:State<'_,Workspace>,sheet:usize)->Result<suite::SheetStatistics,String>{lock(&s.sheets)?.statistics(sheet)}
 #[tauri::command] fn workbook_open(s:State<'_,Workspace>,path:String)->Result<SheetBook,String>{let d:SheetBook=suite::load_json(Path::new(&path))?;d.validate()?;*lock(&s.sheets)?=d.clone();Ok(d)}
 #[tauri::command] fn workbook_save(s:State<'_,Workspace>,path:String)->Result<(),String>{let d=lock(&s.sheets)?;d.validate()?;suite::save_json(Path::new(&path),&*d)}
 
@@ -82,5 +85,24 @@ fn cell_address(row:usize,mut col:usize)->String{
     let mut label=String::new();while col>0{col-=1;label.insert(0,(b'A'+(col%26)as u8)as char);col/=26;}format!("{label}{row}")
 }
 
+/// Read-only snapshot of the currently opened Writer, Sheets and Slides workspaces.
+#[tauri::command]
+fn automation_snapshot(s:State<'_,Workspace>)->Result<automation::AutomationSnapshot,String>{
+    Ok(automation::AutomationSnapshot{
+        writer:lock(&s.writer)?.clone(),
+        sheets:lock(&s.sheets)?.clone(),
+        slides:lock(&s.slides)?.clone(),
+    })
+}
+
+/// Serialize cross-editor updates by acquiring locks in a single fixed order.
+#[tauri::command]
+fn automation_execute(s:State<'_,Workspace>,batch:automation::AutomationBatch)->Result<automation::AutomationResult,String>{
+    let mut writer=lock(&s.writer)?;
+    let mut sheets=lock(&s.sheets)?;
+    let mut slides=lock(&s.slides)?;
+    automation::execute(&mut writer,&mut sheets,&mut slides,batch)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run(){tauri::Builder::default().plugin(tauri_plugin_dialog::init()).manage(Workspace{writer:Mutex::new(Document::blank()),sheets:Mutex::new(SheetBook::blank()),slides:Mutex::new(Deck::blank()),base:Mutex::new(Database::default())}).invoke_handler(tauri::generate_handler![snapshot,new_document,edit_document,rename_document,open_document,save_document,workbook_snapshot,workbook_new,workbook_put,workbook_add_sheet,workbook_put_batch,workbook_rename_sheet,workbook_delete_sheet,workbook_value,workbook_open,workbook_save,deck_snapshot,deck_new,deck_add,deck_update,deck_delete,deck_duplicate,deck_move,deck_open,deck_save,base_path,base_create,base_open,base_tables,base_create_table,base_insert,base_update,base_delete,base_browse,base_select,base_import_csv,base_indexes,base_create_index,base_delete_index,base_browse_page,base_to_workbook,base_integrity_check,base_backup,base_export_table_csv,base_group_report]).run(tauri::generate_context!()).expect("Failed to start Koffice")}
+pub fn run(){tauri::Builder::default().plugin(tauri_plugin_dialog::init()).manage(Workspace{writer:Mutex::new(Document::blank()),sheets:Mutex::new(SheetBook::blank()),slides:Mutex::new(Deck::blank()),base:Mutex::new(Database::default())}).invoke_handler(tauri::generate_handler![snapshot,new_document,edit_document,rename_document,open_document,save_document,workbook_snapshot,workbook_new,workbook_put,workbook_add_sheet,workbook_put_batch,workbook_rename_sheet,workbook_delete_sheet,workbook_value,workbook_find,workbook_statistics,workbook_open,workbook_save,deck_snapshot,deck_new,deck_add,deck_update,deck_delete,deck_duplicate,deck_move,deck_open,deck_save,base_path,base_create,base_open,base_tables,base_create_table,base_insert,base_update,base_delete,base_browse,base_select,base_import_csv,base_indexes,base_create_index,base_delete_index,base_browse_page,base_to_workbook,base_integrity_check,base_backup,base_export_table_csv,base_group_report,automation_snapshot,automation_execute]).run(tauri::generate_context!()).expect("Failed to start Koffice")}
