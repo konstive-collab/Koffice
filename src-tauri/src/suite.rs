@@ -65,6 +65,33 @@ impl SheetBook {
         copy.sheets.push(Sheet { name, cells: BTreeMap::new() });
         copy.bump()?; copy.validate()?; *self = copy; Ok(())
     }
+    /// Atomic multi-cell edit, including clipboard paste. A single revision is committed.
+    pub fn put_batch(&mut self, expected: u64, sheet: usize, updates: BTreeMap<String, String>) -> Result<(), String> {
+        check_revision(self.revision, expected)?;
+        if updates.len() > 20_000 { return Err("Batch exceeds 20,000 cells".into()); }
+        let mut copy = self.clone();
+        let tab = copy.sheets.get_mut(sheet).ok_or("Sheet not found")?;
+        for (address, value) in updates {
+            parse_address(&address)?;
+            if value.len() > MAX_INPUT { return Err("Cell content too long".into()); }
+            if value.is_empty() { tab.cells.remove(&address); } else { tab.cells.insert(address, value); }
+        }
+        copy.bump()?; copy.validate()?; *self = copy; Ok(())
+    }
+    pub fn rename_sheet(&mut self, expected: u64, index: usize, name: String) -> Result<(), String> {
+        check_revision(self.revision, expected)?;
+        let mut copy = self.clone();
+        copy.sheets.get_mut(index).ok_or("Sheet not found")?.name = name;
+        copy.bump()?; copy.validate()?; *self = copy; Ok(())
+    }
+    pub fn delete_sheet(&mut self, expected: u64, index: usize) -> Result<(), String> {
+        check_revision(self.revision, expected)?;
+        if self.sheets.len() == 1 { return Err("Cannot delete the last sheet".into()); }
+        let mut copy = self.clone();
+        if index >= copy.sheets.len() { return Err("Sheet not found".into()); }
+        copy.sheets.remove(index);
+        copy.bump()?; copy.validate()?; *self = copy; Ok(())
+    }
     fn bump(&mut self) -> Result<(), String> { self.revision = self.revision.checked_add(1).ok_or("Revision overflow")?; Ok(()) }
     /// Preview formula values without mutating the saved source expression.
     pub fn value(&self, sheet: usize, address: &str) -> Result<String, String> {
@@ -83,16 +110,27 @@ fn evaluate(cells: &BTreeMap<String, String>, address: &str, stack: &mut BTreeSe
         let value = cells.get(address).map(String::as_str).unwrap_or("");
         let Some(expr) = value.strip_prefix('=') else { return Ok(value.to_owned()); };
         let expr = expr.trim().to_uppercase();
-        if let Some(body) = expr.strip_prefix("SUM(").and_then(|s| s.strip_suffix(')')) {
-            let (from, to) = body.split_once(':').ok_or("SUM requires a range")?;
+        for func in ["SUM", "AVERAGE", "COUNT", "MIN", "MAX"] {
+          if let Some(body) = expr.strip_prefix(func).and_then(|s| s.strip_prefix('(')).and_then(|s| s.strip_suffix(')')) {
+            let (from, to) = body.split_once(':').ok_or("Function requires a range")?;
             let (r1,c1) = parse_address(from)?; let (r2,c2) = parse_address(to)?;
-            if r2 < r1 || c2 < c1 || (r2-r1+1)*(c2-c1+1) > 10_000 { return Err("SUM range is invalid or too large".into()); }
-            let mut sum = 0f64;
+            if r2 < r1 || c2 < c1 || (r2-r1+1)*(c2-c1+1) > 10_000 { return Err("Formula range is invalid or too large".into()); }
+            let mut nums=Vec::new();
             for r in r1..=r2 { for c in c1..=c2 {
-                let key = format_address(r,c);
-                sum += evaluate(cells, &key, stack, depth+1)?.parse::<f64>().unwrap_or(0.0);
+                let key=format_address(r,c);
+                let val=evaluate(cells,&key,stack,depth+1)?;
+                if let Ok(num)=val.parse::<f64>() { if num.is_finite() { nums.push(num); } }
             }}
-            return Ok(format_number(sum));
+            let answer=match func {
+                "SUM"=>nums.iter().sum(),
+                "COUNT"=>nums.len() as f64,
+                "AVERAGE"=>{if nums.is_empty(){return Err("AVERAGE of empty range".into());}nums.iter().sum::<f64>()/nums.len() as f64},
+                "MIN"=>*nums.iter().reduce(|a,b|if a<b{a}else{b}).ok_or("MIN of empty range")?,
+                "MAX"=>*nums.iter().reduce(|a,b|if a>b{a}else{b}).ok_or("MAX of empty range")?,
+                _=>unreachable!()
+            };
+            return Ok(format_number(answer));
+          }
         }
         if expr.chars().all(|c| c.is_ascii_alphanumeric() || c == '$') && expr.chars().any(|c| c.is_ascii_alphabetic()) {
             let ref_addr = expr.replace('$', "");
@@ -153,6 +191,22 @@ impl Deck {
         check_revision(self.revision, expected)?; let mut copy=self.clone(); *copy.slides.get_mut(index).ok_or("Slide not found")?=slide;
         copy.revision=copy.revision.checked_add(1).ok_or("Revision overflow")?; copy.validate()?; *self=copy; Ok(())
     }
+    pub fn duplicate(&mut self, expected:u64, index:usize) -> Result<(),String> {
+        check_revision(self.revision, expected)?;
+        let mut copy=self.clone();
+        let slide=copy.slides.get(index).ok_or("Slide not found")?.clone();
+        copy.slides.insert(index+1,slide);
+        copy.revision=copy.revision.checked_add(1).ok_or("Revision overflow")?;
+        copy.validate()?; *self=copy; Ok(())
+    }
+    pub fn move_slide(&mut self, expected:u64, from:usize, to:usize) -> Result<(),String> {
+        check_revision(self.revision,expected)?;
+        if from>=self.slides.len() || to>=self.slides.len(){return Err("Slide not found".into());}
+        let mut copy=self.clone();
+        let item=copy.slides.remove(from);copy.slides.insert(to,item);
+        copy.revision=copy.revision.checked_add(1).ok_or("Revision overflow")?;
+        copy.validate()?;*self=copy;Ok(())
+    }
     pub fn delete(&mut self, expected:u64, index:usize) -> Result<(),String> {
         check_revision(self.revision, expected)?; let mut copy=self.clone(); if copy.slides.len()==1 {return Err("Cannot remove the last slide".into());}
         if index>=copy.slides.len() {return Err("Slide not found".into());} copy.slides.remove(index);
@@ -179,5 +233,14 @@ pub fn save_json<T:Serialize>(path:&Path,object:&T)->Result<(),String> {
  #[test] fn circular_and_out_of_bounds() {let mut b=SheetBook::blank(); assert!(b.put(0,0,"A0".into(),"x".into()).is_err()); b.put(0,0,"A1".into(),"=B1".into()).unwrap(); b.put(1,0,"B1".into(),"=A1".into()).unwrap(); assert!(b.value(0,"A1").is_err());}
  #[test] fn arithmetic_precedence() {let mut b=SheetBook::blank();b.put(0,0,"C3".into(),"=2+3*4".into()).unwrap(); assert_eq!(b.value(0,"C3").unwrap(),"14");}
  #[test] fn slide_revision_and_delete() {let mut d=Deck::blank();d.add(0).unwrap();assert!(d.delete(0,0).is_err());d.delete(1,0).unwrap();assert_eq!(d.slides.len(),1);}
+ #[test] fn batch_is_atomic_and_checks_revision() {
+   let mut b=SheetBook::blank(); let mut updates=BTreeMap::new();updates.insert("A1".into(),"4".into());updates.insert("ZZZ999".into(),"bad".into());
+   assert!(b.put_batch(0,0,updates).is_err());assert_eq!(b.revision,0);assert!(b.sheets[0].cells.is_empty());
+   let mut valid=BTreeMap::new();valid.insert("A1".into(),"4".into());valid.insert("A2".into(),"6".into());
+   b.put_batch(0,0,valid).unwrap();assert_eq!(b.revision,1);assert_eq!(b.value(0,"A2").unwrap(),"6");
+   assert!(b.put_batch(0,0,BTreeMap::new()).is_err());
+ }
+ #[test] fn aggregates_ignore_nonnumeric_and_reject_empty_average(){let mut b=SheetBook::blank();b.put(0,0,"A1".into(),"3".into()).unwrap();b.put(1,0,"A2".into(),"7".into()).unwrap();b.put(2,0,"A3".into(),"hello".into()).unwrap();for (i,(formula,result)) in [("=AVERAGE(A1:A3)","5"),("=COUNT(A1:A3)","2"),("=MIN(A1:A3)","3"),("=MAX(A1:A3)","7")].iter().enumerate(){let address=format!("B{}",i+1);b.put(b.revision,0,address.clone(),formula.to_string()).unwrap();assert_eq!(b.value(0,&address).unwrap(),*result);}b.put(b.revision,0,"C1".into(),"=AVERAGE(D1:D2)".into()).unwrap();assert!(b.value(0,"C1").is_err());}
+ #[test] fn sheet_management_and_slide_reorder(){let mut b=SheetBook::blank();b.add_sheet(0,"Second".into()).unwrap();b.rename_sheet(1,1,"Renamed".into()).unwrap();assert_eq!(b.sheets[1].name,"Renamed");b.delete_sheet(2,0).unwrap();assert!(b.delete_sheet(3,0).is_err());let mut d=Deck::blank();d.add(0).unwrap();d.duplicate(1,0).unwrap();assert_eq!(d.slides.len(),3);d.move_slide(2,0,2).unwrap();assert_eq!(d.slides[2].title,"Title slide");}
  #[test] fn validation_rejects_duplicate_sheet_names(){let mut b=SheetBook::blank(); assert!(b.add_sheet(0,"sheet 1".into()).is_err());}
 }

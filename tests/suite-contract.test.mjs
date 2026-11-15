@@ -13,9 +13,15 @@ test('three applications share native Rust commands', () => {
 test('revision and formula protections are present',()=>{
   assert.match(domain,/Circular reference/);
   assert.match(domain,/Revision conflict/);
-  assert.match(domain,/SUM requires a range/);
+  assert.match(domain,/Function requires a range/);
   assert.match(domain,/Too many cells/);
 });
 test('UI includes all editor names and export actions',()=>{
   for (const feature of ['Writer','Sheets','Slides','Export','Print / PDF']) assert.ok(ui.includes(feature));
+});
+
+test('batch editing and slide management are exposed to the frontend',()=>{
+ for(const c of ['workbook_put_batch','workbook_rename_sheet','workbook_delete_sheet','deck_duplicate','deck_move']){assert.match(src,new RegExp(`fn ${c}\\(`));assert.ok(ui.includes(`'${c}'`),`missing UI call ${c}`);}
+ for(const c of ['AVERAGE','COUNT','MIN','MAX'])assert.ok(domain.includes(`"${c}"`));
+ assert.match(domain,/batch_is_atomic_and_checks_revision/);
 });

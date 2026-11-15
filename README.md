@@ -58,3 +58,13 @@ AI access is a **design goal**, not an implemented network service. Future JSON-
 See [CONTRIBUTING.md](CONTRIBUTING.md). We welcome tests, UX changes, bug reports and proposals for standards-compatible document engines. Licensed under [MIT](LICENSE).
 
 [Русская документация](README.ru.md)
+
+## v0.3 alpha development update
+- **Writer:** find and replace the selected match; basic text formatting tokens and TXT export.
+- **Sheets:** atomic multi-cell paste (TSV from clipboard), CSV import into active sheet (up to 5 MiB / 20,000 edits), CSV export, rename/delete sheets, `SUM`, `AVERAGE`, `COUNT`, `MIN`, `MAX`, arithmetic expressions and direct cell references.
+- **Slides:** duplicate slides and reorder slides with Up/Down controls, in addition to editing, notes and presentation preview.
+- **Core:** revision-checked, validated batch operations, with changes rolled back on failure.
+
+These are **alpha** functions and have limitations. CSV importer uses comma-delimited UTF-8; complex spreadsheet formulas and Microsoft Office file formats are not supported. The Writer is a plain-text editor (the formatting buttons insert markup characters, not WYSIWYG styles). The app has no MCP server yet.
+
+Build/test status is published in GitHub Actions; structural contract tests are not a substitute for running the Rust and UI test suites.
