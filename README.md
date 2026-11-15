@@ -1,29 +1,60 @@
-# Koffice ☕
+# Koffice ☕ — open-source, AI-native office suite
 
-**Koffice** is an open-source, local-first office suite built with **Rust + Tauri**. Its AI-native architecture exposes typed document operations for both the desktop UI and future AI agents.
+**Koffice** is a local-first office suite built in **Rust + Tauri**. This community alpha ships three early editors sharing a Rust backend. The goal is robust document processing from both the desktop interface and AI agents using the same typed commands.
 
-## Apps
-- **Writer:** plain-text document editor, native `.kdoc` file format and save/reopen.
-- **Sheets:** native `.ksheet` workbooks, multiple sheets, grid editing, arithmetic, cell references and SUM formulas.
-- **Slides:** native `.kslide` presentations, add/edit/delete slides, speaker notes and presenter view.
+## Available in v0.2.0-alpha.1
 
-> **Alpha release:** These formats are not DOCX, XLSX or PPTX. Their import/export is planned, not currently supported. PDF export is currently implemented through the operating system print dialog. Do not use this alpha for critical documents without backups.
+| App | Working features | Native format |
+|---|---|---|
+| Writer | Plain-text editing; Markdown-like formatting shortcuts; title, document operations, Save/Open, TXT export, print/PDF via system print | `.kdoc` |
+| Sheets | Editable 12×35 viewport; cells stored in a larger grid; multiple sheets; arithmetic, cell references and SUM formulas; CSV export (current sheet) | `.ksheet` |
+| Slides | Create/edit/delete slides; speaker notes; presentation view; print/PDF via system print | `.kslide` |
 
-## Build
-Install Rust, Node.js 20+, platform-specific Tauri 2 dependencies, then:
+**Important:** these are early editors, not complete substitutes for Word, Excel or PowerPoint. DOCX, XLSX, PPTX import/export, advanced formatting, images, charts, collaboration, MCP and Python SDK are not implemented yet. The native JSON formats are for Koffice, not Microsoft file types. Keep backups of important documents. Do not call this a stable release.
 
-```sh
+## Run on Windows
+
+Install **Rust stable**, **Node.js 20+**, **Microsoft C++ Build Tools**, and **WebView2**. Then, from the project directory:
+
+```powershell
 npm install
 npm run tauri dev
+```
+
+Run tests:
+
+```powershell
 npm test
-cd src-tauri && cargo test
+cd src-tauri
+cargo test
+```
+
+Build an installer (requires a configured Windows environment):
+
+```powershell
+npm run tauri build
 ```
 
 ## Architecture
-The `src-tauri/src` engine owns file validation, revision checks and document mutations. The frontend calls typed Tauri commands; future SDK / MCP integrations should use the same engine, not mutate files directly.
+
+- `src-tauri/src/engine.rs`: versioned Writer document operations and checked file replacement.
+- `src-tauri/src/suite.rs`: typed Sheets/Slides domain operations, formula evaluation, validation and structured storage.
+- `src-tauri/src/lib.rs`: Tauri application commands; the UI must not manipulate Rust internals directly.
+- `src/`: TypeScript UI.
+- `.github/workflows/ci.yml`: automated test/build checks.
+
+AI access is a **design goal**, not an implemented network service. Future JSON-RPC/MCP adapters must call the same domain engines, with permission checks, auditable actions and safe transactions.
+
+## Security and known limitations
+
+- The alpha only opens Koffice JSON documents for its own native formats.
+- Formula parser supports numeric arithmetic, single-cell references and `SUM(A1:A5)`; not the full spreadsheet function language.
+- CSV export covers the visible sheet's first 26 columns and currently lacks complex quoting/formatting options.
+- Replacing an existing file uses a same-folder temporary file and backup/rollback strategy. Power loss and filesystems still require recovery tests.
+- Do not treat unsaved edits or renderer notifications as persistent commits until Save has completed.
 
 ## Contributing
-MIT license. Bugs, designs, tests, features and pull requests welcome. Read CONTRIBUTING.md.
 
-### Русский
-Koffice — открытый офисный пакет на Rust и Tauri. В ранней версии доступны Writer, Sheets и Slides с собственными форматами; совместимость с форматами Microsoft Office находится в планах.
+See [CONTRIBUTING.md](CONTRIBUTING.md). We welcome tests, UX changes, bug reports and proposals for standards-compatible document engines. Licensed under [MIT](LICENSE).
+
+[Русская документация](README.ru.md)
