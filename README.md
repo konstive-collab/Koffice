@@ -68,3 +68,9 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). We welcome tests, UX changes, bug report
 These are **alpha** functions and have limitations. CSV importer uses comma-delimited UTF-8; complex spreadsheet formulas and Microsoft Office file formats are not supported. The Writer is a plain-text editor (the formatting buttons insert markup characters, not WYSIWYG styles). The app has no MCP server yet.
 
 Build/test status is published in GitHub Actions; structural contract tests are not a substitute for running the Rust and UI test suites.
+
+## Koffice Base (v0.4 alpha)
+
+SQLite-based `.kdb` databases with a native Rust API: create/open, typed schemas, multiple tables, record CRUD, text search, read-only SQL explorer, CSV export of visible results (500-row cap). Every successful insert/update/delete is saved automatically. The SQL explorer is read-only; user-provided values in CRUD operations are parameterized.
+
+**Limitations:** no MS Access MDB/ACCDB import, no forms, reports, visual relationships or migrations yet. Keep backups. No external database connection support yet.

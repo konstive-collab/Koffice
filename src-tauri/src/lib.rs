@@ -1,11 +1,13 @@
 mod engine;
 mod suite;
+mod base;
 use engine::{Document, Edit};
 use suite::{Deck, SheetBook, Slide};
 use std::{path::Path, sync::Mutex};
+use base::{Database, Field, QueryResult, TableInfo};
 use tauri::State;
 
-struct Workspace { writer: Mutex<Document>, sheets: Mutex<SheetBook>, slides: Mutex<Deck> }
+struct Workspace { writer: Mutex<Document>, sheets: Mutex<SheetBook>, slides: Mutex<Deck>, base: Mutex<Database> }
 fn lock<T>(mutex:&Mutex<T>)->Result<std::sync::MutexGuard<'_,T>,String>{mutex.lock().map_err(|_|"Workspace lock poisoned".into())}
 
 #[tauri::command] fn snapshot(s:State<'_,Workspace>)->Result<Document,String>{Ok(lock(&s.writer)?.clone())}
@@ -36,5 +38,16 @@ fn lock<T>(mutex:&Mutex<T>)->Result<std::sync::MutexGuard<'_,T>,String>{mutex.lo
 #[tauri::command] fn deck_open(s:State<'_,Workspace>,path:String)->Result<Deck,String>{let d:Deck=suite::load_json(Path::new(&path))?;d.validate()?;*lock(&s.slides)?=d.clone();Ok(d)}
 #[tauri::command] fn deck_save(s:State<'_,Workspace>,path:String)->Result<(),String>{let d=lock(&s.slides)?;d.validate()?;suite::save_json(Path::new(&path),&*d)}
 
+#[tauri::command] fn base_path(s:State<'_,Workspace>)->Result<Option<String>,String>{Ok(lock(&s.base)?.path())}
+#[tauri::command] fn base_create(s:State<'_,Workspace>,path:String)->Result<(),String>{lock(&s.base)?.create(&path)}
+#[tauri::command] fn base_open(s:State<'_,Workspace>,path:String)->Result<(),String>{lock(&s.base)?.open(&path)}
+#[tauri::command] fn base_tables(s:State<'_,Workspace>)->Result<Vec<TableInfo>,String>{lock(&s.base)?.tables()}
+#[tauri::command] fn base_create_table(s:State<'_,Workspace>,table:String,fields:Vec<Field>)->Result<(),String>{lock(&s.base)?.create_table(&table,fields)}
+#[tauri::command] fn base_insert(s:State<'_,Workspace>,table:String,values:serde_json::Map<String,serde_json::Value>)->Result<i64,String>{lock(&s.base)?.insert(&table,values)}
+#[tauri::command] fn base_update(s:State<'_,Workspace>,table:String,id:i64,values:serde_json::Map<String,serde_json::Value>)->Result<usize,String>{lock(&s.base)?.update(&table,id,values)}
+#[tauri::command] fn base_delete(s:State<'_,Workspace>,table:String,id:i64)->Result<usize,String>{lock(&s.base)?.delete(&table,id)}
+#[tauri::command] fn base_browse(s:State<'_,Workspace>,table:String,search:Option<String>)->Result<QueryResult,String>{lock(&s.base)?.browse(&table,search)}
+#[tauri::command] fn base_select(s:State<'_,Workspace>,sql:String)->Result<QueryResult,String>{lock(&s.base)?.select(&sql)}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run(){tauri::Builder::default().plugin(tauri_plugin_dialog::init()).manage(Workspace{writer:Mutex::new(Document::blank()),sheets:Mutex::new(SheetBook::blank()),slides:Mutex::new(Deck::blank())}).invoke_handler(tauri::generate_handler![snapshot,new_document,edit_document,rename_document,open_document,save_document,workbook_snapshot,workbook_new,workbook_put,workbook_add_sheet,workbook_put_batch,workbook_rename_sheet,workbook_delete_sheet,workbook_value,workbook_open,workbook_save,deck_snapshot,deck_new,deck_add,deck_update,deck_delete,deck_duplicate,deck_move,deck_open,deck_save]).run(tauri::generate_context!()).expect("Failed to start Koffice")}
+pub fn run(){tauri::Builder::default().plugin(tauri_plugin_dialog::init()).manage(Workspace{writer:Mutex::new(Document::blank()),sheets:Mutex::new(SheetBook::blank()),slides:Mutex::new(Deck::blank()),base:Mutex::new(Database::default())}).invoke_handler(tauri::generate_handler![snapshot,new_document,edit_document,rename_document,open_document,save_document,workbook_snapshot,workbook_new,workbook_put,workbook_add_sheet,workbook_put_batch,workbook_rename_sheet,workbook_delete_sheet,workbook_value,workbook_open,workbook_save,deck_snapshot,deck_new,deck_add,deck_update,deck_delete,deck_duplicate,deck_move,deck_open,deck_save,base_path,base_create,base_open,base_tables,base_create_table,base_insert,base_update,base_delete,base_browse,base_select]).run(tauri::generate_context!()).expect("Failed to start Koffice")}

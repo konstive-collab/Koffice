@@ -45,3 +45,9 @@ npm run tauri build
 - **Rust Core:** проверка ревизий и валидация пакетных операций перед сохранением.
 
 Это ранняя версия. Поддержки DOCX/XLSX/PPTX и сервера MCP пока нет; Writer не является полноценным визуальным редактором форматированного текста. Результаты сборки и тестов публикуются в GitHub Actions.
+
+## Koffice Base (v0.4 alpha)
+
+SQLite-based `.kdb` databases with a native Rust API: create/open, typed schemas, multiple tables, record CRUD, text search, read-only SQL explorer, CSV export of visible results (500-row cap). Every successful insert/update/delete is saved automatically. The SQL explorer is read-only; user-provided values in CRUD operations are parameterized.
+
+**Limitations:** no MS Access MDB/ACCDB import, no forms, reports, visual relationships or migrations yet. Keep backups. No external database connection support yet.
