@@ -4,7 +4,7 @@ mod base;
 use engine::{Document, Edit};
 use suite::{Deck, SheetBook, Slide};
 use std::{path::Path, sync::Mutex};
-use base::{Database, Field, QueryResult, TableInfo};
+use base::{Database, Field, QueryResult, TableInfo, ImportResult, IndexInfo};
 use tauri::State;
 
 struct Workspace { writer: Mutex<Document>, sheets: Mutex<SheetBook>, slides: Mutex<Deck>, base: Mutex<Database> }
@@ -49,5 +49,33 @@ fn lock<T>(mutex:&Mutex<T>)->Result<std::sync::MutexGuard<'_,T>,String>{mutex.lo
 #[tauri::command] fn base_browse(s:State<'_,Workspace>,table:String,search:Option<String>)->Result<QueryResult,String>{lock(&s.base)?.browse(&table,search)}
 #[tauri::command] fn base_select(s:State<'_,Workspace>,sql:String)->Result<QueryResult,String>{lock(&s.base)?.select(&sql)}
 
+#[tauri::command] fn base_import_csv(s:State<'_,Workspace>,table:String,content:String)->Result<ImportResult,String>{lock(&s.base)?.import_csv(&table,&content)}
+#[tauri::command] fn base_indexes(s:State<'_,Workspace>,table:String)->Result<Vec<IndexInfo>,String>{lock(&s.base)?.indexes(&table)}
+#[tauri::command] fn base_create_index(s:State<'_,Workspace>,table:String,columns:Vec<String>,unique:bool)->Result<String,String>{lock(&s.base)?.create_index(&table,columns,unique)}
+#[tauri::command] fn base_delete_index(s:State<'_,Workspace>,name:String)->Result<(),String>{lock(&s.base)?.delete_index(&name)}
+#[tauri::command] fn base_browse_page(s:State<'_,Workspace>,table:String,search:Option<String>,offset:usize)->Result<QueryResult,String>{lock(&s.base)?.browse_page(&table,search,offset)}
+
+/// Snapshot a database table into Sheets using a single workbook revision.
+#[tauri::command] fn base_to_workbook(s:State<'_,Workspace>,table:String)->Result<SheetBook,String>{
+    let rows=lock(&s.base)?.browse_page(&table,None,0)?;
+    if (rows.rows.len()+1)*rows.columns.len()>20_000{return Err("Table snapshot exceeds 20,000 cells".into());}
+    let mut updates=std::collections::BTreeMap::new();
+    for (col,name) in rows.columns.iter().enumerate(){updates.insert(cell_address(1,col+1),name.clone());}
+    for (row,values) in rows.rows.iter().enumerate(){
+        for (col,value) in values.iter().enumerate(){
+            let text=match value{serde_json::Value::Null=>String::new(),serde_json::Value::String(s)=>s.clone(),v=>v.to_string()};
+            if !text.is_empty(){updates.insert(cell_address(row+2,col+1),text);}
+        }
+    }
+    let mut book=SheetBook::blank();
+    book.sheets[0].name=table.chars().take(80).collect();
+    book.put_batch(0,0,updates)?;
+    *lock(&s.sheets)?=book.clone();
+    Ok(book)
+}
+fn cell_address(row:usize,mut col:usize)->String{
+    let mut label=String::new();while col>0{col-=1;label.insert(0,(b'A'+(col%26)as u8)as char);col/=26;}format!("{label}{row}")
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run(){tauri::Builder::default().plugin(tauri_plugin_dialog::init()).manage(Workspace{writer:Mutex::new(Document::blank()),sheets:Mutex::new(SheetBook::blank()),slides:Mutex::new(Deck::blank()),base:Mutex::new(Database::default())}).invoke_handler(tauri::generate_handler![snapshot,new_document,edit_document,rename_document,open_document,save_document,workbook_snapshot,workbook_new,workbook_put,workbook_add_sheet,workbook_put_batch,workbook_rename_sheet,workbook_delete_sheet,workbook_value,workbook_open,workbook_save,deck_snapshot,deck_new,deck_add,deck_update,deck_delete,deck_duplicate,deck_move,deck_open,deck_save,base_path,base_create,base_open,base_tables,base_create_table,base_insert,base_update,base_delete,base_browse,base_select]).run(tauri::generate_context!()).expect("Failed to start Koffice")}
+pub fn run(){tauri::Builder::default().plugin(tauri_plugin_dialog::init()).manage(Workspace{writer:Mutex::new(Document::blank()),sheets:Mutex::new(SheetBook::blank()),slides:Mutex::new(Deck::blank()),base:Mutex::new(Database::default())}).invoke_handler(tauri::generate_handler![snapshot,new_document,edit_document,rename_document,open_document,save_document,workbook_snapshot,workbook_new,workbook_put,workbook_add_sheet,workbook_put_batch,workbook_rename_sheet,workbook_delete_sheet,workbook_value,workbook_open,workbook_save,deck_snapshot,deck_new,deck_add,deck_update,deck_delete,deck_duplicate,deck_move,deck_open,deck_save,base_path,base_create,base_open,base_tables,base_create_table,base_insert,base_update,base_delete,base_browse,base_select,base_import_csv,base_indexes,base_create_index,base_delete_index,base_browse_page,base_to_workbook]).run(tauri::generate_context!()).expect("Failed to start Koffice")}

@@ -6,6 +6,8 @@ use std::path::{Path, PathBuf};
 
 const MAX_ROWS: usize = 500;
 const MAX_COLUMNS: usize = 64;
+const MAX_IMPORT_BYTES: usize = 5_000_000;
+const MAX_IMPORT_ROWS: usize = 10_000;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Field { pub name: String, pub kind: String, pub required: bool }
@@ -13,6 +15,10 @@ pub struct Field { pub name: String, pub kind: String, pub required: bool }
 pub struct TableInfo { pub name: String, pub count: i64, pub fields: Vec<Field> }
 #[derive(Clone, Serialize, Deserialize)]
 pub struct QueryResult { pub columns: Vec<String>, pub rows: Vec<Vec<serde_json::Value>>, pub truncated: bool }
+#[derive(Clone, Serialize, Deserialize)]
+pub struct IndexInfo { pub name: String, pub unique: bool, pub columns: Vec<String> }
+#[derive(Clone, Serialize, Deserialize)]
+pub struct ImportResult { pub inserted: usize, pub columns: Vec<String> }
 
 pub struct Database { path: Option<PathBuf> }
 impl Default for Database { fn default() -> Self { Self { path: None } } }
@@ -114,6 +120,93 @@ impl Database {
         };
         query_conn(&conn,&sql,&[])
     }
+    /// Import a CSV snapshot to an existing table; any invalid row rolls back the entire batch.
+    pub fn import_csv(&self, table:&str, content:&str)->Result<ImportResult,String>{
+        valid_name(table)?;
+        if content.len()>MAX_IMPORT_BYTES { return Err("CSV exceeds 5 MB".into()); }
+        let mut conn=self.conn()?;
+        let allowed=self.fields_from(&conn,table)?;
+        if allowed.is_empty(){return Err("Table does not exist".into());}
+        let mut reader=csv::ReaderBuilder::new().flexible(false).from_reader(content.trim_start_matches('\u{feff}').as_bytes());
+        let headers=reader.headers().map_err(|e|format!("Invalid CSV header: {e}"))?.iter().map(str::to_owned).collect::<Vec<_>>();
+        if headers.is_empty()||headers.len()>MAX_COLUMNS{return Err("CSV must have 1-64 columns".into());}
+        let mut seen=std::collections::HashSet::new();
+        for col in &headers {valid_name(col)?;if col.eq_ignore_ascii_case("id") || !seen.insert(col.to_ascii_lowercase()) || !allowed.iter().any(|f|f.name==*col){return Err(format!("Unknown, duplicate, or protected CSV field: {col}"));}}
+        let placeholders=vec!["?";headers.len()].join(",");
+        let sql=format!("INSERT INTO {} ({}) VALUES ({})",quote(table),headers.iter().map(|h|quote(h)).collect::<Vec<_>>().join(","),placeholders);
+        let tx=conn.transaction().map_err(db_error)?;
+        let mut count=0;
+        {let mut stmt=tx.prepare(&sql).map_err(db_error)?;
+            for record in reader.records(){
+                if count>=MAX_IMPORT_ROWS {return Err("CSV import exceeds 10,000 records; no records were imported".into());}
+                let record=record.map_err(|e|format!("CSV row {}: {e}",count+2))?;
+                let mut values=Vec::with_capacity(headers.len());
+                for (i,cell) in record.iter().enumerate(){
+                    if cell.len()>1_000_000 {return Err(format!("CSV row {}: field exceeds 1 MB",count+2));}
+                    let kind=&allowed.iter().find(|f|f.name==headers[i]).ok_or("CSV field missing")?.kind;
+                    let value=if cell.is_empty(){Value::Null}else{match kind.to_ascii_uppercase().as_str(){
+                        "INTEGER"=>Value::Integer(cell.parse::<i64>().map_err(|_|format!("CSV row {}: invalid INTEGER for {}",count+2,headers[i]))?),
+                        "REAL"=>{let n=cell.parse::<f64>().map_err(|_|format!("CSV row {}: invalid REAL for {}",count+2,headers[i]))?;if !n.is_finite(){return Err("Non-finite value".into());}Value::Real(n)},
+                        _=>Value::Text(cell.to_owned())
+                    }};
+                    values.push(value);
+                }
+                stmt.execute(params_from_iter(values)).map_err(|e|format!("CSV row {}: {e}",count+2))?;
+                count+=1;
+            }
+        }
+        tx.commit().map_err(db_error)?;
+        Ok(ImportResult{inserted:count,columns:headers})
+    }
+    /// Only known table columns can be indexed; automatic index names cannot target internal SQLite indexes.
+    pub fn create_index(&self,table:&str,columns:Vec<String>,unique:bool)->Result<String,String>{
+        valid_name(table)?;
+        if columns.is_empty()||columns.len()>4{return Err("Indexes require 1-4 columns".into());}
+        let conn=self.conn()?;let fields=self.fields_from(&conn,table)?;
+        if fields.is_empty(){return Err("Table does not exist".into());}
+        let mut seen=std::collections::HashSet::new();
+        for name in &columns{valid_name(name)?;if !fields.iter().any(|f|f.name==*name)||!seen.insert(name.to_ascii_lowercase()){return Err("Unknown or repeated index column".into());}}
+        let name=format!("kidx_{}_{}",table,columns.join("_"));
+        if name.len()>64{return Err("Index name is too long".into());}
+        let sql=format!("CREATE {} INDEX {} ON {} ({})",if unique{"UNIQUE"}else{""},quote(&name),quote(table),columns.iter().map(|s|quote(s)).collect::<Vec<_>>().join(","));
+        conn.execute(&sql,[]).map_err(db_error)?;
+        Ok(name)
+    }
+    pub fn indexes(&self,table:&str)->Result<Vec<IndexInfo>,String>{
+        valid_name(table)?;let conn=self.conn()?;
+        if self.fields_from(&conn,table)?.is_empty(){return Err("Table does not exist".into());}
+        let mut stmt=conn.prepare(&format!("PRAGMA index_list({})",quote(table))).map_err(db_error)?;
+        let found=stmt.query_map([],|r|Ok((r.get::<_,String>(1)?,r.get::<_,i64>(2)?!=0))).map_err(db_error)?.collect::<Result<Vec<_>,_>>().map_err(db_error)?;
+        let mut result=Vec::new();
+        for (name,unique) in found{if !name.starts_with("kidx_"){continue;}
+            // Index name comes from SQLite, not a user-supplied SQL fragment; quote by escaping.
+            let mut cols=conn.prepare(&format!("PRAGMA index_info(\"{}\")",name.replace('"',"\"\""))).map_err(db_error)?;
+            let columns=cols.query_map([],|r|r.get::<_,String>(2)).map_err(db_error)?.collect::<Result<Vec<_>,_>>().map_err(db_error)?;
+            result.push(IndexInfo{name,unique,columns});
+        }
+        Ok(result)
+    }
+    pub fn delete_index(&self,name:&str)->Result<(),String>{
+        valid_name(name)?;
+        if !name.starts_with("kidx_"){return Err("Only Koffice-created indexes can be removed".into());}
+        let conn=self.conn()?;
+        let found:Option<String>=conn.query_row("SELECT name FROM sqlite_master WHERE type='index' AND name=?1",[name],|r|r.get(0)).optional().map_err(db_error)?;
+        if found.is_none(){return Err("Index not found".into());}
+        conn.execute(&format!("DROP INDEX {}",quote(name)),[]).map_err(db_error)?;Ok(())
+    }
+    /// Offset pagination for large databases: never loads the whole table into memory.
+    pub fn browse_page(&self,table:&str,search:Option<String>,offset:usize)->Result<QueryResult,String>{
+        if offset>1_000_000{return Err("Offset exceeds 1,000,000".into());}
+        valid_name(table)?;let conn=self.conn()?;let fields=self.fields_from(&conn,table)?;
+        if fields.is_empty(){return Err("Table does not exist".into());}
+        let search=search.unwrap_or_default();if search.len()>256{return Err("Search term is too long".into());}
+        let pattern=format!("%{}%",search.replace('\\',"\\\\").replace('%',"\\%").replace('_',"\\_"));
+        let filters=fields.iter().filter(|f|f.kind.eq_ignore_ascii_case("TEXT")).map(|f|format!("{} LIKE ? ESCAPE '\\'",quote(&f.name))).collect::<Vec<_>>();
+        let sql=if search.is_empty()||filters.is_empty(){format!("SELECT * FROM {} ORDER BY id LIMIT {} OFFSET {}",quote(table),MAX_ROWS+1,offset)}else{
+            format!("SELECT * FROM {} WHERE {} ORDER BY id LIMIT {} OFFSET {}",quote(table),filters.join(" OR "),MAX_ROWS+1,offset)};
+        let args=if search.is_empty()||filters.is_empty(){vec![]}else{vec![Value::Text(pattern);filters.len()]};
+        query_conn(&conn,&sql,&args)
+    }
     /// SELECT/WITH only: rejects multiple statements and all writes, including writable CTEs.
     pub fn select(&self,sql:&str)->Result<QueryResult,String>{
         if sql.len()>32_768{return Err("SQL exceeds 32 KiB".into());}
@@ -139,5 +232,28 @@ fn query_conn(conn:&Connection,sql:&str,values:&[Value])->Result<QueryResult,Str
     fn temp()->(Database,PathBuf){let mut db=Database::default();let path=std::env::temp_dir().join(format!("koffice-base-{}-{}.kdb",std::process::id(),std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));db.create(path.to_str().unwrap()).unwrap();(db,path)}
     #[test] fn crud_and_reopen(){let(mut db,path)=temp();db.create_table("people",vec![Field{name:"name".into(),kind:"TEXT".into(),required:true},Field{name:"age".into(),kind:"INTEGER".into(),required:false}]).unwrap();let id=db.insert("people",serde_json::from_value(serde_json::json!({"name":"Анна","age":23})).unwrap()).unwrap();assert_eq!(db.tables().unwrap()[0].count,1);assert_eq!(db.browse("people",Some("Анна".into())).unwrap().rows.len(),1);assert_eq!(db.update("people",id,serde_json::from_value(serde_json::json!({"age":24})).unwrap()).unwrap(),1);db.open(path.to_str().unwrap()).unwrap();assert_eq!(db.select("SELECT age FROM people").unwrap().rows[0][0],24);assert_eq!(db.delete("people",id).unwrap(),1);std::fs::remove_file(path).unwrap();}
     #[test] fn rejects_sql_injection_and_bad_fields(){let(db,path)=temp();assert!(db.create_table("x; DROP TABLE y",vec![Field{name:"n".into(),kind:"TEXT".into(),required:false}]).is_err());db.create_table("safe",vec![Field{name:"value".into(),kind:"TEXT".into(),required:false}]).unwrap();assert!(db.select("DELETE FROM safe").is_err());assert!(db.select("WITH x AS (DELETE FROM safe RETURNING *) SELECT * FROM x").is_err());assert!(db.select("SELECT * FROM safe; DELETE FROM safe").is_err());assert!(db.insert("safe",serde_json::from_value(serde_json::json!({"value":"x", "evil":10})).unwrap()).is_err());assert_eq!(db.tables().unwrap()[0].count,0);std::fs::remove_file(path).unwrap();}
+    #[test] fn csv_import_is_atomic_and_handles_quoted_fields(){
+        let(db,path)=temp();db.create_table("people",vec![Field{name:"name".into(),kind:"TEXT".into(),required:true},Field{name:"age".into(),kind:"INTEGER".into(),required:false}]).unwrap();
+        let csv="name,age\n\"Анна, И.\",24\nБорис,29\n";
+        assert_eq!(db.import_csv("people",csv).unwrap().inserted,2);
+        assert_eq!(db.browse("people",Some("Анна".into())).unwrap().rows[0][1],"Анна, И.");
+        assert!(db.import_csv("people","name,age\nОлег,40\nМария,not_a_number\n").is_err());
+        assert_eq!(db.tables().unwrap()[0].count,2);
+        assert!(db.import_csv("people","id,name\n1,Evil\n").is_err());
+        assert!(db.import_csv("people","name,name\na,b\n").is_err());
+        std::fs::remove_file(path).unwrap();
+    }
+    #[test] fn indexes_and_pagination(){
+        let(db,path)=temp();db.create_table("people",vec![Field{name:"name".into(),kind:"TEXT".into(),required:false}]).unwrap();
+        let idx=db.create_index("people",vec!["name".into()],true).unwrap();
+        assert_eq!(db.indexes("people").unwrap()[0].columns,vec!["name"]);
+        db.import_csv("people","name\nAnn\nBob\n").unwrap();
+        assert_eq!(db.browse_page("people",None,1).unwrap().rows.len(),1);
+        assert!(db.import_csv("people","name\nAnn\n").is_err());
+        assert_eq!(db.tables().unwrap()[0].count,2);
+        assert!(db.delete_index("sqlite_autoindex_people_1").is_err());
+        db.delete_index(&idx).unwrap();assert!(db.indexes("people").unwrap().is_empty());
+        std::fs::remove_file(path).unwrap();
+    }
     #[test] fn pagination_cap(){let(db,path)=temp();db.create_table("items",vec![Field{name:"label".into(),kind:"TEXT".into(),required:false}]).unwrap();let conn=db.conn().unwrap();let tx=conn.unchecked_transaction().unwrap();for _ in 0..501{tx.execute("INSERT INTO items (label) VALUES ('x')",[]).unwrap();}tx.commit().unwrap();let r=db.browse("items",None).unwrap();assert_eq!(r.rows.len(),500);assert!(r.truncated);drop(conn);std::fs::remove_file(path).unwrap();}
 }

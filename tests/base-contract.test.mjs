@@ -6,7 +6,7 @@ const lib=readFileSync(new URL('../src-tauri/src/lib.rs',import.meta.url),'utf8'
 const ui=readFileSync(new URL('../src/base-ui.ts',import.meta.url),'utf8');
 const main=readFileSync(new URL('../src/main.ts',import.meta.url),'utf8');
 test('Base is wired to all the CRUD and query commands',()=>{
- for(const name of ['base_create','base_open','base_tables','base_create_table','base_insert','base_update','base_delete','base_browse','base_select']){
+ for(const name of ['base_create','base_open','base_tables','base_create_table','base_insert','base_update','base_delete','base_browse_page','base_select']){
   assert.ok(lib.includes(`fn ${name}(`),name);assert.ok(ui.includes(`'${name}'`),name);
  }
  assert.ok(main.includes('nav-base'));assert.ok(main.includes('base.render()'));

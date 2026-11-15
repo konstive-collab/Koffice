@@ -74,3 +74,16 @@ Build/test status is published in GitHub Actions; structural contract tests are 
 SQLite-based `.kdb` databases with a native Rust API: create/open, typed schemas, multiple tables, record CRUD, text search, read-only SQL explorer, CSV export of visible results (500-row cap). Every successful insert/update/delete is saved automatically. The SQL explorer is read-only; user-provided values in CRUD operations are parameterized.
 
 **Limitations:** no MS Access MDB/ACCDB import, no forms, reports, visual relationships or migrations yet. Keep backups. No external database connection support yet.
+
+
+## Koffice Base v0.5: database power tools
+
+- Transactional CSV import to an existing table using its exact column names (5 MB / 10,000 rows per import). Any error rolls back the whole import. CSV headers must not contain the auto-generated `id` column.
+- Index management (single or multi-column, optional unique constraint), with index listing and deletion.
+- Database paging in 500-row blocks and text-column search.
+- **Base → Sheets** copies a 500-row database snapshot into a new unsaved workbook; exporting large datasets will require future streaming APIs.
+- New Rust tests cover rollback, quoted CSV, index uniqueness, pagination, and existing CRUD paths.
+
+These features are experimental and do not yet provide Access file compatibility or graphical relational forms. Save backup copies before using early alpha builds.
+
+CI includes a Windows desktop build job. If successful, Windows installers are downloadable from the corresponding GitHub Actions run artifacts (not a signed release).
