@@ -22,13 +22,29 @@ function message(t:string){$('notice').textContent=t;$('notice').classList.add('
 function confirmDiscard(){return !dirty&&saved[active]===revision()||window.confirm('Discard unsaved changes in this workspace?');}
 const extensions:Record<Kind,string>={writer:'kdoc',sheets:'ksheet',slides:'kslide',base:'kdb'};
 const labels:Record<Kind,string>={writer:'Writer',sheets:'Sheets',slides:'Slides',base:'Base'};
-const source='Koffice · Local-first · AI-native foundation';
+const source='Koffice · Fast · Local · Cross-platform';
+const PREF_KEY='koffice.desktop.preferences.v1';
+type Preferences={compact:boolean;scale:number};
+function loadPreferences():Preferences{
+  try {
+    const raw=JSON.parse(localStorage.getItem(PREF_KEY)||'{}') as Partial<Preferences>;
+    return {compact:raw.compact===true,scale:typeof raw.scale==='number'&&Number.isFinite(raw.scale)?Math.max(.8,Math.min(1.35,raw.scale)):1};
+  }catch{return {compact:false,scale:1};}
+}
+const preferences=loadPreferences();
+function applyPreferences(){
+  document.documentElement.style.setProperty('--content-scale',String(preferences.scale));
+  document.body.classList.toggle('compact-layout',preferences.compact);
+  const compact=$('toggle-compact');if(compact)compact.setAttribute('aria-pressed',String(preferences.compact));
+  const zoom=$('zoom-value');if(zoom)zoom.textContent=Math.round(preferences.scale*100)+'%';
+  try{localStorage.setItem(PREF_KEY,JSON.stringify(preferences));}catch{ /* Preferences remain usable without storage. */ }
+}
 let searchNeedle='';
 function toAddress(row:number,col:number){let letters='';while(col>0){col--;letters=String.fromCharCode(65+col%26)+letters;col=Math.floor(col/26);}return letters+row;}
 function parseCsv(input:string):string[][]{const rows:string[][]=[];let row:string[]=[],value='',quoted=false;for(let i=0;i<input.length;i++){const ch=input[i];if(quoted){if(ch==='\"'&&input[i+1]==='\"'){value+='\"';i++;}else if(ch==='\"'){quoted=false;}else value+=ch;}else if(ch==='\"'&&value===''){quoted=true;}else if(ch===','){row.push(value);value='';}else if(ch==='\n'||ch==='\r'){if(ch==='\r'&&input[i+1]==='\n')i++;row.push(value);value='';rows.push(row);row=[];}else value+=ch;}if(quoted)throw Error('Unclosed CSV quote');if(row.length||value){row.push(value);rows.push(row);}return rows;}
 
 const app=document.querySelector<HTMLDivElement>('#app')!;
-app.innerHTML=`<aside class="sidebar"><div class="logo"><div class="logo-mark">K</div><div><b>Koffice</b><small>COMMUNITY ALPHA</small></div></div><span class="heading">WORKSPACE</span><button class="nav" id="nav-writer">▤ &nbsp; Writer <span>Text</span></button><button class="nav" id="nav-sheets">▦ &nbsp; Sheets <span>Data</span></button><button class="nav" id="nav-slides">▣ &nbsp; Slides <span>Present</span></button><button class="nav" id="nav-base">▥ &nbsp; Base <span>Database</span></button><div class="side-foot"><div class="dot"></div><span>Running locally<br><small>${source}</small></span></div></aside><main class="main"><header class="header"><div><div class="breadcrumb">Your workspace <span> / </span> <span id="kind">Writer</span></div><div class="document-name" id="docname">Untitled</div></div><div class="version">v0.7 · OPEN SOURCE</div></header><div class="toolbar"><button id="new">＋ New</button><button id="open">↥ Open</button><button id="save">↧ Save</button><button id="saveas">Save as</button><div class="sep"></div><button id="find">Find / Replace</button><button id="automation">Automation API</button><button id="export">Export</button><button id="print">Print / PDF</button><div class="spacer"></div><span class="status" id="status">Ready</span></div><section class="canvas" id="canvas"></section><footer><span id="details">Koffice</span><span id="location">Unsaved workspace</span><span id="rev">Revision 0</span></footer><div id="notice" role="status"></div></main>`;
+app.innerHTML=`<aside class="sidebar"><div class="logo"><div class="logo-mark">K</div><div><b>Koffice</b><small>COMMUNITY ALPHA</small></div></div><span class="heading">WORKSPACE</span><button class="nav" id="nav-writer">▤ &nbsp; Writer <span>Text</span></button><button class="nav" id="nav-sheets">▦ &nbsp; Sheets <span>Data</span></button><button class="nav" id="nav-slides">▣ &nbsp; Slides <span>Present</span></button><button class="nav" id="nav-base">▥ &nbsp; Base <span>Database</span></button><div class="side-foot"><div class="dot"></div><span>Running locally<br><small>${source}</small></span></div></aside><main class="main"><header class="header"><div><div class="breadcrumb">Your workspace <span> / </span> <span id="kind">Writer</span></div><div class="document-name" id="docname">Untitled</div></div><div class="version">v0.9 · OPEN SOURCE</div></header><div class="toolbar"><button id="new">＋ New</button><button id="open">↥ Open</button><button id="save">↧ Save</button><button id="saveas">Save as</button><div class="sep"></div><button id="find">Find / Replace</button><button id="automation">Automation API</button><button id="export">Export</button><button id="print">Print / PDF</button><div class="spacer"></div><button id="toggle-compact" title="Show or hide sidebar" aria-label="Toggle sidebar">☰</button><button id="zoom-out" aria-label="Zoom out">−</button><span id="zoom-value" aria-live="polite">100%</span><button id="zoom-in" aria-label="Zoom in">＋</button><span class="status" id="status">Ready</span></div><section class="canvas" id="canvas"></section><footer><span id="details">Koffice</span><span id="location">Unsaved workspace</span><span id="rev">Revision 0</span></footer><div id="notice" role="status"></div></main>`;
 const base = new BaseUI(message,()=>refresh(),async(table)=>{
   if (saved.sheets!==book.revision && !window.confirm('Replace the unsaved Sheets workbook with the database snapshot?')) return;
   const next=await invoke<Book>('base_to_workbook',{table});
@@ -132,6 +148,23 @@ $('automation-run').onclick=()=>void run(async()=>{
 });
 $('find').onclick=()=>findReplace();
 $('new').onclick=()=>void run(create);$('open').onclick=()=>void run(openFile);$('save').onclick=()=>void run(()=>saveFile(false));$('saveas').onclick=()=>void run(()=>saveFile(true));$('export').onclick=exportData;$('print').onclick=printFile;
-window.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'){e.preventDefault();void run(()=>saveFile(false));}});
+function changeZoom(delta:number){preferences.scale=Math.max(.8,Math.min(1.35,Math.round((preferences.scale+delta)*20)/20));applyPreferences();}
+$('toggle-compact').onclick=()=>{preferences.compact=!preferences.compact;applyPreferences();};
+$('zoom-out').onclick=()=>changeZoom(-.05);
+$('zoom-in').onclick=()=>changeZoom(.05);
+applyPreferences();
+window.addEventListener('keydown',e=>{
+ if(!(e.ctrlKey||e.metaKey)||e.altKey)return;
+ const key=e.key.toLowerCase();
+ if(key==='s'){e.preventDefault();void run(()=>saveFile(e.shiftKey));return;}
+ if(key==='o'){e.preventDefault();void run(openFile);return;}
+ if(key==='n'){e.preventDefault();void run(create);return;}
+ if(key==='b'&&e.shiftKey){e.preventDefault();preferences.compact=!preferences.compact;applyPreferences();return;}
+ if(key==='0'&&e.shiftKey){e.preventDefault();preferences.scale=1;applyPreferences();return;}
+ if(!e.shiftKey&&['1','2','3','4'].includes(key)){
+   e.preventDefault();const kind=(['writer','sheets','slides','base'] as const)[Number(key)-1];
+   void run(async()=>{await flush();active=kind;dirty=saved[active]!==revision();refresh();});
+ }
+});
 window.addEventListener('beforeunload',e=>{if(dirty||saved.writer!==doc.revision||saved.sheets!==book.revision||saved.slides!==deck.revision)e.preventDefault();});
 void Promise.all([invoke<Doc>('snapshot'),invoke<Book>('workbook_snapshot'),invoke<Deck>('deck_snapshot')]).then(([d,b,s])=>{doc=d;book=b;deck=s;saved.writer=d.revision;saved.sheets=b.revision;saved.slides=s.revision;refresh();void base.initialize().catch(e=>message(String(e)));}).catch(e=>message(`Koffice Core unavailable: ${e}`));
