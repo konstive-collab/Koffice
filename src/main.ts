@@ -9,7 +9,7 @@ type Kind='writer'|'sheets'|'slides'|'base';
 type Doc={format:string;title:string;text:string;revision:number;embedded_objects?:EmbeddedSheet[]};
 type Book={format:string;title:string;revision:number;sheets:{name:string;cells:Record<string,string>}[]};
 type BaseSlideSource={database_path:string;table:string;clean:{title:string;body:string;notes:string}};
-type Slide={title:string;body:string;notes:string;base_source?:BaseSlideSource};
+type Slide={title:string;body:string;notes:string;base_source?:BaseSlideSource;embedded_objects?:EmbeddedSheet[]};
 type Deck={format:string;title:string;revision:number;slides:Slide[]};
 let active:Kind='writer',doc:Doc,book:Book,deck:Deck,slideIndex=0,sheetIndex=0;
 const paths:Record<Kind,string|null>={writer:null,sheets:null,slides:null,base:null};
@@ -47,7 +47,7 @@ function toAddress(row:number,col:number){let letters='';while(col>0){col--;lett
 function parseCsv(input:string):string[][]{const rows:string[][]=[];let row:string[]=[],value='',quoted=false;for(let i=0;i<input.length;i++){const ch=input[i];if(quoted){if(ch==='\"'&&input[i+1]==='\"'){value+='\"';i++;}else if(ch==='\"'){quoted=false;}else value+=ch;}else if(ch==='\"'&&value===''){quoted=true;}else if(ch===','){row.push(value);value='';}else if(ch==='\n'||ch==='\r'){if(ch==='\r'&&input[i+1]==='\n')i++;row.push(value);value='';rows.push(row);row=[];}else value+=ch;}if(quoted)throw Error('Unclosed CSV quote');if(row.length||value){row.push(value);rows.push(row);}return rows;}
 
 const app=document.querySelector<HTMLDivElement>('#app')!;
-app.innerHTML=`<aside class="sidebar"><div class="logo"><div class="logo-mark">K</div><div><b>Koffice</b><small>COMMUNITY ALPHA</small></div></div><span class="heading">WORKSPACE</span><button class="nav" id="nav-writer">▤ &nbsp; Writer <span>Text</span></button><button class="nav" id="nav-sheets">▦ &nbsp; Sheets <span>Data</span></button><button class="nav" id="nav-slides">▣ &nbsp; Slides <span>Present</span></button><button class="nav" id="nav-base">▥ &nbsp; Base <span>Database</span></button><div class="side-foot"><div class="dot"></div><span>Running locally<br><small>${source}</small></span></div></aside><main class="main"><header class="header"><div><div class="breadcrumb">Your workspace <span> / </span> <span id="kind">Writer</span></div><div class="document-name" id="docname">Untitled</div></div><div class="version">v0.15 · OPEN SOURCE</div></header><div class="toolbar"><button id="new">＋ New</button><button id="open">↥ Open</button><button id="save">↧ Save</button><button id="saveas">Save as</button><div class="sep"></div><button id="find">Find / Replace</button><button id="fusion-center">Fusion links</button><button id="automation">Automation API</button><button id="export">Export</button><button id="print">Print / PDF</button><div class="spacer"></div><button id="toggle-compact" title="Show or hide sidebar" aria-label="Toggle sidebar">☰</button><button id="zoom-out" aria-label="Zoom out">−</button><span id="zoom-value" aria-live="polite">100%</span><button id="zoom-in" aria-label="Zoom in">＋</button><span class="status" id="status">Ready</span></div><section class="canvas" id="canvas"></section><footer><span id="details">Koffice</span><span id="location">Unsaved workspace</span><span id="rev">Revision 0</span></footer><div id="notice" role="status"></div></main>`;
+app.innerHTML=`<aside class="sidebar"><div class="logo"><div class="logo-mark">K</div><div><b>Koffice</b><small>COMMUNITY ALPHA</small></div></div><span class="heading">WORKSPACE</span><button class="nav" id="nav-writer">▤ &nbsp; Writer <span>Text</span></button><button class="nav" id="nav-sheets">▦ &nbsp; Sheets <span>Data</span></button><button class="nav" id="nav-slides">▣ &nbsp; Slides <span>Present</span></button><button class="nav" id="nav-base">▥ &nbsp; Base <span>Database</span></button><div class="side-foot"><div class="dot"></div><span>Running locally<br><small>${source}</small></span></div></aside><main class="main"><header class="header"><div><div class="breadcrumb">Your workspace <span> / </span> <span id="kind">Writer</span></div><div class="document-name" id="docname">Untitled</div></div><div class="version">v0.16 · OPEN SOURCE</div></header><div class="toolbar"><button id="new">＋ New</button><button id="open">↥ Open</button><button id="save">↧ Save</button><button id="saveas">Save as</button><div class="sep"></div><button id="find">Find / Replace</button><button id="fusion-center">Fusion links</button><button id="automation">Automation API</button><button id="export">Export</button><button id="print">Print / PDF</button><div class="spacer"></div><button id="toggle-compact" title="Show or hide sidebar" aria-label="Toggle sidebar">☰</button><button id="zoom-out" aria-label="Zoom out">−</button><span id="zoom-value" aria-live="polite">100%</span><button id="zoom-in" aria-label="Zoom in">＋</button><span class="status" id="status">Ready</span></div><section class="canvas" id="canvas"></section><footer><span id="details">Koffice</span><span id="location">Unsaved workspace</span><span id="rev">Revision 0</span></footer><div id="notice" role="status"></div></main>`;
 const fusion=new FusionUI(
   ()=>doc?.embedded_objects??[],
   updatesCallback,
@@ -142,6 +142,36 @@ async function updatesCallback(id:string,updates:Record<string,string>){
   });
 }
 // One shared cross-app link center. Inventory never accesses file paths.
+// The very same Sheets grid component hosts tables in Writer and Slides.
+const unavailableSlideLink=async (_id:string)=>{throw new Error('Slides supports independent embedded tables in this release');};
+const slideFusion=new FusionUI(
+  ()=>deck?.slides[slideIndex]?.embedded_objects??[],
+  async(id,updates)=>{await run(async()=>{
+    await flush();
+    deck=await invoke<Deck>('slides_embedded_put',{expectedRevision:deck.revision,index:slideIndex,objectId:id,updates});
+    syncDirty();refresh();
+    const first=Object.keys(updates)[0];
+    if(first&&updates[first].startsWith('=')){
+      try{message(first+' = '+await invoke<string>('slides_embedded_value',{index:slideIndex,objectId:id,address:first}));}
+      catch(e){message(String(e));}
+    }
+  });},
+  async id=>{await run(async()=>{
+    await flush();
+    if(!window.confirm('Remove this embedded table from the slide?'))return;
+    deck=await invoke<Deck>('slides_embedded_remove',{expectedRevision:deck.revision,index:slideIndex,objectId:id});
+    syncDirty();refresh();
+  });},
+  async id=>{await run(async()=>{
+    await flush();
+    book=await invoke<Book>('slides_embedded_to_sheets',{index:slideIndex,objectId:id,expectedRevision:book.revision});
+    sheetIndex=book.sheets.length-1;active='sheets';syncDirty();refresh();
+    message('Slides worksheet appended to Sheets. Save the workbook to retain it.');
+  });},
+  unavailableSlideLink,unavailableSlideLink,unavailableSlideLink,unavailableSlideLink,
+  unavailableSlideLink,unavailableSlideLink,unavailableSlideLink,unavailableSlideLink,
+  message
+);
 const fusionManager=new FusionManagerUI(
   ()=>invoke<LinkNode[]>('fusion_graph'),
   ids=>invoke<PreviewReport>('fusion_preview_refresh',{objectIds:ids}),
@@ -231,12 +261,21 @@ function renderCanvas(){
    ($('csv-picker') as HTMLInputElement).onchange=()=>void run(async()=>{const file=($('csv-picker') as HTMLInputElement).files?.[0];if(!file)return;if(file.size>5*1024*1024)throw Error('CSV exceeds 5 MiB limit');const records=parseCsv((await file.text()).replace(/^\uFEFF/,''));const updates:Record<string,string>={};records.forEach((row,r)=>row.forEach((value,c)=>{if(r<10000&&c<702)updates[toAddress(r+1,c+1)]=value;}));book=await invoke('workbook_put_batch',{expectedRevision:book.revision,sheet:sheetIndex,updates});syncDirty();refresh();message(`Imported ${Object.keys(updates).length} CSV cells`);});
    $('add-sheet').onclick=()=>void run(async()=>{const name=window.prompt('Name of new sheet',`Sheet ${book.sheets.length+1}`);if(!name)return;book=await invoke('workbook_add_sheet',{expectedRevision:book.revision,name});sheetIndex=book.sheets.length-1;syncDirty();refresh();});
  }else{
-   const item=deck.slides[slideIndex];$('canvas').innerHTML=`<div class="slides-area"><div class="slide-list"><div class="slides-title">SLIDES <button id="add-slide">＋</button></div>${deck.slides.map((s,i)=>`<button class="slide-thumb ${i===slideIndex?'current':''}" data-slide="${i}"><span>${i+1}</span><strong>${escapeHtml(s.title||'Untitled slide')}</strong></button>`).join('')}</div><div class="slide-edit"><div class="slide-tools"><span>Slide ${slideIndex+1} of ${deck.slides.length}</span><button id="slide-up">↑</button><button id="slide-down">↓</button><button id="duplicate-slide">Duplicate</button><button id="delete-slide">Delete slide</button><button id="presentation">Present</button>${item.base_source?'<button id="slide-check-base">Check Base</button><button id="slide-refresh-base">Refresh Base</button><button id="slide-reconnect-base">Relink Base</button><button id="slide-detach-base">Detach Base</button>':''}</div><div class="slide-screen"><input id="slide-title" placeholder="Slide title" value="${escapeHtml(item.title)}" aria-label="Slide title"><textarea id="slide-body" aria-label="Slide content" placeholder="Your story begins here..."></textarea></div><label class="notes-label">Speaker notes<textarea id="slide-notes" placeholder="Private notes for the presenter..."></textarea></label></div></div>`;
+   const item=deck.slides[slideIndex];$('canvas').innerHTML=`<div class="slides-area"><div class="slide-list"><div class="slides-title">SLIDES <button id="add-slide">＋</button></div>${deck.slides.map((s,i)=>`<button class="slide-thumb ${i===slideIndex?'current':''}" data-slide="${i}"><span>${i+1}</span><strong>${escapeHtml(s.title||'Untitled slide')}</strong></button>`).join('')}</div><div class="slide-edit"><div class="slide-tools"><span>Slide ${slideIndex+1} of ${deck.slides.length}</span><button id="slide-up">↑</button><button id="slide-down">↓</button><button id="duplicate-slide">Duplicate</button><button id="delete-slide">Delete slide</button><button id="slide-insert-sheet">Insert Sheets table</button><button id="presentation">Present</button>${item.base_source?'<button id="slide-check-base">Check Base</button><button id="slide-refresh-base">Refresh Base</button><button id="slide-reconnect-base">Relink Base</button><button id="slide-detach-base">Detach Base</button>':''}</div><div class="slide-screen"><input id="slide-title" placeholder="Slide title" value="${escapeHtml(item.title)}" aria-label="Slide title"><textarea id="slide-body" aria-label="Slide content" placeholder="Your story begins here..."></textarea><div class="slide-embedded-objects">${slideFusion.preview()}</div></div><label class="notes-label">Speaker notes<textarea id="slide-notes" placeholder="Private notes for the presenter..."></textarea></label></div></div>`;
    ($('slide-body') as HTMLTextAreaElement).value=item.body;($('slide-notes') as HTMLTextAreaElement).value=item.notes;
    $('details').textContent=`${deck.slides.length} slides · Presentation editor`;
    let timer:ReturnType<typeof setTimeout>|undefined;
    for(const id of ['slide-title','slide-body','slide-notes'])$(id).addEventListener('input',()=>{syncDirty();clearTimeout(timer);timer=setTimeout(()=>void commitSlide(),350);});
    document.querySelectorAll<HTMLButtonElement>('[data-slide]').forEach(x=>x.onclick=()=>void run(async()=>{await commitSlide();slideIndex=Number(x.dataset.slide);refresh();}));
+   slideFusion.wirePreview();
+   $('slide-insert-sheet').onclick=()=>void run(async()=>{
+     await flush();
+     const isCurrent=window.confirm('Copy the active worksheet from Sheets? Cancel inserts a blank table.');
+     const label=window.prompt('Embedded Sheets table name',isCurrent?book.sheets[sheetIndex]?.name??'Embedded table':'Embedded table');
+     if(!label)return;
+     deck=await invoke<Deck>('slides_embed_sheet',{expectedRevision:deck.revision,index:slideIndex,label,sourceSheet:isCurrent?sheetIndex:null});
+     syncDirty();refresh();message('Editable Sheets table inserted in Slides. Save the presentation.');
+   });
    $('add-slide').onclick=()=>void run(async()=>{await commitSlide();deck=await invoke('deck_add',{expectedRevision:deck.revision});slideIndex=deck.slides.length-1;syncDirty();refresh();});
    $('duplicate-slide').onclick=()=>void run(async()=>{await commitSlide();deck=await invoke('deck_duplicate',{expectedRevision:deck.revision,index:slideIndex});slideIndex++;syncDirty();refresh();});
    for(const [button,direction] of [['slide-up',-1],['slide-down',1]] as const){$(button).onclick=()=>void run(async()=>{await commitSlide();const next=slideIndex+direction;if(next<0||next>=deck.slides.length)return;deck=await invoke('deck_move',{expectedRevision:deck.revision,from:slideIndex,to:next});slideIndex=next;syncDirty();refresh();});}
@@ -277,11 +316,11 @@ function renderCanvas(){
        syncDirty();refresh();message('Base link detached; slide data preserved.');
      });
    }
-   $('presentation').onclick=()=>{const data=deck.slides.map(s=>`<section style="page-break-after:always;display:grid;place-content:center;width:100vw;height:100vh;background:#202632;color:white;padding:7vw;box-sizing:border-box;font:28px sans-serif"><h1 style="font-size:2em">${escapeHtml(s.title)}</h1><p style="white-space:pre-wrap">${escapeHtml(s.body)}</p></section>`).join('');const w=window.open('','_blank');if(!w){message('Allow popups to present');return;}w.document.write(`<html><head><title>${escapeHtml(deck.title)}</title></head><body style="margin:0">${data}</body></html>`);w.document.close();};
+   $('presentation').onclick=()=>{const data=deck.slides.map(s=>`<section style="page-break-after:always;display:grid;place-content:center;width:100vw;height:100vh;background:#202632;color:white;padding:7vw;box-sizing:border-box;font:28px sans-serif"><h1 style="font-size:2em">${escapeHtml(s.title)}</h1><p style="white-space:pre-wrap">${escapeHtml(s.body)}</p><div style="font-size:13px;max-height:45vh;overflow:auto;background:white;color:#222">${slideFusion.exportHtml(s.embedded_objects??[])}</div></section>`).join('');const w=window.open('','_blank');if(!w){message('Allow popups to present');return;}w.document.write(`<html><head><title>${escapeHtml(deck.title)}</title></head><body style="margin:0">${data}</body></html>`);w.document.close();};
  }
 }
 async function commitWriter(){if(active!=='writer')return;const text=($('text') as HTMLTextAreaElement)?.value;if(text===undefined||text===doc.text)return;doc=await invoke('edit_document',{expectedRevision:doc.revision,edit:{type:'replace_all',text}});syncDirty();$('rev').textContent=`Revision ${doc.revision}`;$('details').textContent=`${text.trim()?text.trim().split(/\s+/u).length:0} words · ${[...text].length} characters`;}
-async function commitSlide(){if(active!=='slides')return;const title=($('slide-title') as HTMLInputElement)?.value,body=($('slide-body') as HTMLTextAreaElement)?.value,notes=($('slide-notes') as HTMLTextAreaElement)?.value;if(title===undefined)return;const original=deck.slides[slideIndex];const slide:Slide={title,body,notes,...(original.base_source?{base_source:original.base_source}:{})};if(JSON.stringify(slide)===JSON.stringify(original))return;deck=await invoke('deck_update',{expectedRevision:deck.revision,index:slideIndex,slide});syncDirty();$('rev').textContent=`Revision ${deck.revision}`;}
+async function commitSlide(){if(active!=='slides')return;const title=($('slide-title') as HTMLInputElement)?.value,body=($('slide-body') as HTMLTextAreaElement)?.value,notes=($('slide-notes') as HTMLTextAreaElement)?.value;if(title===undefined)return;const original=deck.slides[slideIndex];const slide:Slide={title,body,notes,...(original.base_source?{base_source:original.base_source}:{}),...(original.embedded_objects?.length?{embedded_objects:original.embedded_objects}:{})};if(JSON.stringify(slide)===JSON.stringify(original))return;deck=await invoke('deck_update',{expectedRevision:deck.revision,index:slideIndex,slide});syncDirty();$('rev').textContent=`Revision ${deck.revision}`;}
 async function flush(){if(active==='base')return;if(active==='writer')await commitWriter();if(active==='slides')await commitSlide();}
 const commands:Record<Kind,{create:string;open:string;save:string}>={writer:{create:'new_document',open:'open_document',save:'save_document'},sheets:{create:'workbook_new',open:'workbook_open',save:'workbook_save'},slides:{create:'deck_new',open:'deck_open',save:'deck_save'},base:{create:'base_create',open:'base_open',save:'base_path'}};
 async function create(){if(active==='base'){await base.create();return;}if(!confirmDiscard())return;const next=await invoke(commands[active].create);assign(next);paths[active]=null;saved[active]=revision();dirty=false;sheetIndex=slideIndex=0;refresh();}
@@ -297,13 +336,13 @@ function exportData(){if(active==='base'){base.exportCsv();return;}if(active==='
    return;
  }
  if(active==='slides'){
-   const content=deck.slides.map(s=>`<section><h1>${escapeHtml(s.title)}</h1><p>${escapeHtml(s.body)}</p></section>`).join('');
+   const content=deck.slides.map(s=>`<section><h1>${escapeHtml(s.title)}</h1><p>${escapeHtml(s.body)}</p>${slideFusion.exportHtml(s.embedded_objects??[])}</section>`).join('');
    const html=`<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${escapeHtml(deck.title)}</title><style>body{margin:0;background:#12161c;color:#f4f5f7;font:26px/1.45 system-ui}section{min-height:100vh;box-sizing:border-box;display:flex;flex-direction:column;justify-content:center;padding:9vw;border-bottom:2px solid #333}h1{font-size:2em}p{white-space:pre-wrap}@media print{section{page-break-after:always;border:0}}</style></head><body>${content}</body></html>`;
    download(new Blob([html],{type:'text/html;charset=utf-8'}),deck.title+'.html');return;
  }
 }
 function download(blob:Blob,name:string){const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
-function printFile(){if(active==='base'){message('Print is not implemented for Base yet');return;}if(active==='sheets'){message('Use Export to download a CSV file');return;}const w=window.open('','_blank');if(!w){message('Allow popups to print');return;}const content=active==='writer'?`<h1>${escapeHtml(doc.title)}</h1><div style="white-space:pre-wrap">${escapeHtml(doc.text)}</div>${fusion.exportHtml()}`:deck.slides.map(s=>`<section style="page-break-after:always"><h1>${escapeHtml(s.title)}</h1><div style="white-space:pre-wrap">${escapeHtml(s.body)}</div></section>`).join('');w.document.write(`<html><head><title>${escapeHtml(title())}</title><style>body{font:16px/1.6 Arial,sans-serif;padding:42px}section{min-height:80vh}@media print{body{padding:0}}</style></head><body>${content}</body></html>`);w.document.close();w.focus();w.print();}
+function printFile(){if(active==='base'){message('Print is not implemented for Base yet');return;}if(active==='sheets'){message('Use Export to download a CSV file');return;}const w=window.open('','_blank');if(!w){message('Allow popups to print');return;}const content=active==='writer'?`<h1>${escapeHtml(doc.title)}</h1><div style="white-space:pre-wrap">${escapeHtml(doc.text)}</div>${fusion.exportHtml()}`:deck.slides.map(s=>`<section style="page-break-after:always"><h1>${escapeHtml(s.title)}</h1><div style="white-space:pre-wrap">${escapeHtml(s.body)}</div>${slideFusion.exportHtml(s.embedded_objects??[])}</section>`).join('');w.document.write(`<html><head><title>${escapeHtml(title())}</title><style>body{font:16px/1.6 Arial,sans-serif;padding:42px}section{min-height:80vh}@media print{body{padding:0}}</style></head><body>${content}</body></html>`);w.document.close();w.focus();w.print();}
 for(const kind of ['writer','sheets','slides','base'] as const)$(`nav-${kind}`).onclick=()=>void run(async()=>{await flush();active=kind;dirty=saved[active]!==revision();refresh();});
 function findReplace(){if(active!=='writer'){message('Find / Replace is available in Writer');return;}const needle=window.prompt('Find text',searchNeedle);if(needle===null||!needle)return;searchNeedle=needle;const el=$('text') as HTMLTextAreaElement;const idx=el.value.indexOf(needle,el.selectionEnd);const at=idx<0?el.value.indexOf(needle):idx;if(at<0){message('No matches');return;}el.focus();el.setSelectionRange(at,at+needle.length);if(!window.confirm('Replace this match? (Cancel = find only)'))return;const replacement=window.prompt('Replace with',needle);if(replacement===null)return;el.setRangeText(replacement,at,at+needle.length,'select');el.dispatchEvent(new Event('input'));}
 // The automation console is opt-in and local-only. It does not expose a network port.

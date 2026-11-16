@@ -1,3 +1,5 @@
+> **Fusion v0.16:** Slides now embeds fully editable native Sheets worksheets and stores their formulas and cells in `.kslide`. Embedded sheets can also be transferred back to standalone Sheets, and are included in print/HTML/presentation views. [Slides worksheet guide](docs/SLIDES-SHEETS.md). AI remains optional.
+
 > **Fusion v0.15:** Base can now add manually refreshed **file-backed Slides**. Links survive restarting and moving/duplicating slides, protect hand-edited slides, and save a readable offline snapshot inside `.kslide`. [Base ↔ Slides guide](docs/BASE-SLIDES-LINKS.md). Not automatic synchronization.
 
 > **Fusion v0.14:** Link Center inventories all embedded Writer objects without reading linked files. Selected file-backed links can be scanned, differences previewed, and refreshed in a single atomic batch with source revalidation. See [Fusion Link Center](docs/FUSION-CENTER.md). No automatic sync.

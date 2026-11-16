@@ -47,6 +47,8 @@ pub struct Slide {
     pub notes: String,
     #[serde(default,skip_serializing_if="Option::is_none")]
     pub base_source: Option<BaseSlideSource>,
+    #[serde(default,skip_serializing_if="Vec::is_empty")]
+    pub embedded_objects: Vec<crate::fusion::EmbeddedObject>,
 }
 impl Slide {
     pub fn content(&self)->SlideContent{
@@ -251,12 +253,20 @@ fn parse_address(a: &str) -> Result<(usize,usize),String> {
 fn format_address(row:usize, mut col:usize)->String { let mut s=String::new(); while col>0 { col-=1; s.insert(0, (b'A'+(col%26) as u8) as char); col/=26; } format!("{s}{row}") }
 
 impl Deck {
-    pub fn blank() -> Self { Self { format: "koffice.slides.v1".into(), title: "Untitled presentation".into(), revision: 0, slides: vec![Slide { title: "Title slide".into(), body: "Click to add content".into(), notes: String::new(), base_source: None }] } }
+    pub fn blank() -> Self { Self { format: "koffice.slides.v1".into(), title: "Untitled presentation".into(), revision: 0, slides: vec![Slide { title: "Title slide".into(), body: "Click to add content".into(), notes: String::new(), base_source: None, embedded_objects:vec![] }] } }
     pub fn validate(&self) -> Result<(),String> {
         if self.format != "koffice.slides.v1" { return Err("Unsupported presentation format".into()); }
         check_title(&self.title)?;
         if self.slides.is_empty() || self.slides.len()>MAX_SLIDES { return Err("Presentation requires 1–500 slides".into()); }
+        let mut total_objects=0usize;
+        let mut total_cells=0usize;
         for s in &self.slides {
+            crate::fusion::validate_objects(&s.embedded_objects)?;
+            total_objects=total_objects.checked_add(s.embedded_objects.len()).ok_or("Embedded object count overflow")?;
+            for object in &s.embedded_objects {
+                total_cells=total_cells.checked_add(object.workbook().sheets[0].cells.len()).ok_or("Embedded cell count overflow")?;
+            }
+            if total_objects>48 || total_cells>25_000 {return Err("Presentation exceeds 48 embedded tables or 25,000 populated cells".into());}
             if s.title.len()>MAX_INPUT || s.body.len()>MAX_INPUT || s.notes.len()>MAX_INPUT { return Err("Slide text too long".into()); }
             if let Some(link)=&s.base_source {
                 if link.database_path.is_empty() || link.database_path.len()>4096 || !link.database_path.ends_with(".kdb")
@@ -275,7 +285,7 @@ impl Deck {
     }
     pub fn add(&mut self, expected:u64) -> Result<(),String> {
         check_revision(self.revision, expected)?; let mut copy=self.clone();
-        copy.slides.push(Slide {title:format!("Slide {}",copy.slides.len()+1), body:String::new(), notes:String::new(), base_source: None});
+        copy.slides.push(Slide {title:format!("Slide {}",copy.slides.len()+1), body:String::new(), notes:String::new(), base_source: None, embedded_objects:vec![]});
         copy.revision=copy.revision.checked_add(1).ok_or("Revision overflow")?; copy.validate()?; *self=copy; Ok(())
     }
     pub fn update(&mut self, expected:u64, index:usize, slide:Slide) -> Result<(),String> {
@@ -285,8 +295,46 @@ impl Deck {
         // detach command may remove the link. Never trust metadata from UI payload.
         let mut replacement=slide;
         replacement.base_source=old.base_source.clone();
+        replacement.embedded_objects=old.embedded_objects.clone();
         copy.slides[index]=replacement;
         copy.revision=copy.revision.checked_add(1).ok_or("Revision overflow")?; copy.validate()?; *self=copy; Ok(())
+    }
+    /// Insert a complete independent Sheets worksheet into a Slides page.
+    /// All formulas are stored as formulas; the source workbook is never changed.
+    pub fn embed_sheet(&mut self,expected:u64,index:usize,label:String,source:&SheetBook,sheet:usize)->Result<(),String>{
+        check_revision(self.revision,expected)?;
+        let object=crate::fusion::copy_sheet(label,source,sheet)?;
+        let mut next=self.clone();
+        next.slides.get_mut(index).ok_or("Slide not found")?.embedded_objects.push(object);
+        next.revision=next.revision.checked_add(1).ok_or("Revision overflow")?;
+        next.validate()?;
+        *self=next;Ok(())
+    }
+    /// Atomic embedded cell edits with the native Sheets validation/formula engine.
+    pub fn embedded_put(&mut self,expected:u64,index:usize,id:&str,updates:BTreeMap<String,String>)->Result<(),String>{
+        check_revision(self.revision,expected)?;
+        let mut next=self.clone();
+        let slide=next.slides.get_mut(index).ok_or("Slide not found")?;
+        let object=slide.embedded_objects.iter_mut().find(|o|o.id()==id).ok_or("Embedded table not found")?;
+        let revision=object.workbook().revision;
+        object.workbook_mut().put_batch(revision,0,updates)?;
+        next.revision=next.revision.checked_add(1).ok_or("Revision overflow")?;
+        next.validate()?;*self=next;Ok(())
+    }
+    pub fn remove_embedded(&mut self,expected:u64,index:usize,id:&str)->Result<(),String>{
+        check_revision(self.revision,expected)?;
+        let mut next=self.clone();
+        let slide=next.slides.get_mut(index).ok_or("Slide not found")?;
+        let before=slide.embedded_objects.len();
+        slide.embedded_objects.retain(|x|x.id()!=id);
+        if before==slide.embedded_objects.len(){return Err("Embedded table not found".into());}
+        next.revision=next.revision.checked_add(1).ok_or("Revision overflow")?;
+        next.validate()?;*self=next;Ok(())
+    }
+    pub fn embedded_value(&self,index:usize,id:&str,address:&str)->Result<String,String>{
+        let slide=self.slides.get(index).ok_or("Slide not found")?;
+        let object=slide.embedded_objects.iter().find(|o|o.id()==id).ok_or("Embedded table not found")?;
+        object.workbook().value(0,address)
     }
     pub fn duplicate(&mut self, expected:u64, index:usize) -> Result<(),String> {
         check_revision(self.revision, expected)?;
@@ -329,6 +377,49 @@ pub fn save_json<T:Serialize>(path:&Path,object:&T)->Result<(),String> {
  #[test] fn sums_cells_and_preserves_formula() {let mut b=SheetBook::blank(); b.put(0,0,"A1".into(),"12".into()).unwrap(); b.put(1,0,"A2".into(),"8".into()).unwrap(); b.put(2,0,"B1".into(),"=SUM(A1:A2)".into()).unwrap(); assert_eq!(b.value(0,"B1").unwrap(),"20"); assert_eq!(b.sheets[0].cells["B1"],"=SUM(A1:A2)");}
  #[test] fn circular_and_out_of_bounds() {let mut b=SheetBook::blank(); assert!(b.put(0,0,"A0".into(),"x".into()).is_err()); b.put(0,0,"A1".into(),"=B1".into()).unwrap(); b.put(1,0,"B1".into(),"=A1".into()).unwrap(); assert!(b.value(0,"A1").is_err());}
  #[test] fn arithmetic_precedence() {let mut b=SheetBook::blank();b.put(0,0,"C3".into(),"=2+3*4".into()).unwrap(); assert_eq!(b.value(0,"C3").unwrap(),"14");}
+
+ #[test] fn slides_embedded_sheet_roundtrip_and_formula_edit() {
+    let mut source=SheetBook::blank();
+    source.put(0,0,"A1".into(),"12".into()).unwrap();
+    source.put(1,0,"B1".into(),"=A1*2".into()).unwrap();
+    let mut deck=Deck::blank();
+    deck.embed_sheet(0,0,"Budget".into(),&source,0).unwrap();
+    let id=deck.slides[0].embedded_objects[0].id().to_string();
+    assert_eq!(deck.embedded_value(0,&id,"B1").unwrap(),"24");
+    let mut change=BTreeMap::new();change.insert("A1".into(),"20".into());
+    deck.embedded_put(1,0,&id,change).unwrap();
+    assert_eq!(deck.embedded_value(0,&id,"B1").unwrap(),"40");
+    assert_eq!(source.sheets[0].cells["A1"],"12");
+    let stored=serde_json::to_vec(&deck).unwrap();
+    let reopened:Deck=serde_json::from_slice(&stored).unwrap();
+    assert_eq!(deck,reopened);
+    assert_eq!(reopened.slides[0].embedded_objects[0].workbook().sheets[0].cells["B1"],"=A1*2");
+ }
+ #[test] fn slides_embedded_updates_rollback_and_move_with_slide() {
+    let mut deck=Deck::blank();
+    deck.embed_sheet(0,0,"Table".into(),&SheetBook::blank(),0).unwrap();
+    let id=deck.slides[0].embedded_objects[0].id().to_string();
+    let before=deck.clone();
+    let mut invalid=BTreeMap::new();invalid.insert("A0".into(),"bad".into());
+    assert!(deck.embedded_put(1,0,&id,invalid).is_err());
+    assert_eq!(deck,before);
+    deck.duplicate(1,0).unwrap();
+    assert_eq!(deck.slides[1].embedded_objects[0].id(),id);
+    deck.move_slide(2,1,0).unwrap();
+    assert_eq!(deck.slides[0].embedded_objects[0].id(),id);
+    let old=deck.slides[0].clone();
+    let modified=Slide{title:"Changed".into(),..old.clone()};
+    deck.update(3,0,modified).unwrap();
+    assert_eq!(deck.slides[0].embedded_objects,old.embedded_objects);
+    deck.remove_embedded(4,0,&id).unwrap();
+    assert!(deck.slides[0].embedded_objects.is_empty());
+ }
+ #[test] fn legacy_slides_without_embedded_objects_still_load() {
+   let old=r#"{"format":"koffice.slides.v1","title":"Old","revision":0,"slides":[{"title":"One","body":"Text","notes":""}]}"#;
+   let deck:Deck=serde_json::from_str(old).unwrap();
+   deck.validate().unwrap();
+   assert!(deck.slides[0].embedded_objects.is_empty());
+ }
  #[test] fn slide_revision_and_delete() {let mut d=Deck::blank();d.add(0).unwrap();assert!(d.delete(0,0).is_err());d.delete(1,0).unwrap();assert_eq!(d.slides.len(),1);}
  #[test] fn batch_is_atomic_and_checks_revision() {
    let mut b=SheetBook::blank(); let mut updates=BTreeMap::new();updates.insert("A1".into(),"4".into());updates.insert("ZZZ999".into(),"bad".into());

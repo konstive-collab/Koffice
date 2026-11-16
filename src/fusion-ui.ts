@@ -39,8 +39,8 @@ export class FusionUI{
   }).join('');
  }
  /** Static printable view with complete cell content. Large sparse sheets use address/value listings. */
- exportHtml():string{
-  return this.getObjects().map(obj=>{
+ exportHtml(objects:EmbeddedSheet[]=this.getObjects()):string{
+  return objects.map(obj=>{
    const cells=obj.workbook.sheets[0].cells;
    const entries=Object.entries(cells);
    const maxRow=entries.reduce((n,[a])=>Math.max(n,Number(a.match(/\d+$/)?.[0]??0)),0);

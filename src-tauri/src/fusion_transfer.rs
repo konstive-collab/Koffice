@@ -37,6 +37,34 @@ pub fn append_embedded_to_workbook(
     Ok(())
 }
 
+/// Append an embedded slide worksheet to standalone Sheets, retaining formulas.
+/// No other workbook tab is changed; duplicate names are deterministically renamed.
+pub fn append_slide_embedded_to_workbook(
+    deck:&Deck,slide_index:usize,object_id:&str,book:&mut SheetBook,expected:u64
+)->Result<(),String>{
+    deck.validate()?;
+    if book.revision!=expected {return Err("Workbook revision conflict".into());}
+    let slide=deck.slides.get(slide_index).ok_or("Slide not found")?;
+    let object=slide.embedded_objects.iter().find(|o|o.id()==object_id).ok_or("Embedded object not found")?;
+    if book.sheets.len()>=50 {return Err("Workbook already has 50 sheets".into());}
+    let mut next=book.clone();
+    let mut tab=object.workbook().sheets[0].clone();
+    let original=tab.name.clone();
+    let mut candidate=original.clone();
+    let mut suffix=2usize;
+    while next.sheets.iter().any(|s|s.name.eq_ignore_ascii_case(&candidate)){
+        let tail=format!(" ({suffix})");
+        let prefix:String=original.chars().take(200usize.saturating_sub(tail.chars().count())).collect();
+        candidate=format!("{prefix}{tail}");
+        suffix+=1;
+        if suffix>100 {return Err("Cannot find unique worksheet name".into());}
+    }
+    tab.name=candidate;
+    next.sheets.push(tab);
+    next.revision=next.revision.checked_add(1).ok_or("Revision overflow")?;
+    next.validate()?;*book=next;Ok(())
+}
+
 /// Converts the first page of a Base table into a readable slide. This is a
 /// labelled snapshot, NOT a live database connection. Excludes fields beyond
 /// the UI's sensible limits; never silently claims the entire table was copied.
@@ -73,6 +101,7 @@ pub fn base_snapshot_slide(table: &str, query: &QueryResult) -> Result<Slide, St
         body: lines.join("\n"),
         notes: format!("Static snapshot from Koffice Base table '{table}'. No live database link. First {} rows, first {} columns displayed.{}", query.rows.len().min(ROWS),columns.len(),if omitted{" Additional source data omitted."}else{""}),
         base_source: None,
+        embedded_objects: vec![],
     };
     if slide.body.len() > 16_384 || slide.notes.len() > 16_384 {return Err("Slide snapshot too large".into());}
     Ok(slide)
