@@ -31,10 +31,11 @@ test('Tauri commands are linked to Slides editor actions',()=>{
   assert.ok(ui.includes(command),command);
  }
  assert.match(ui,/Insert Sheets table/);
- assert.match(ui,/slideFusion\.preview\(\)/);
+ assert.match(ui,/renderSlideFrames\(item\.embedded_objects\?\?\[\]/);
+ assert.match(ui,/slideFusion\.preview\(objects\)/);
  assert.match(ui,/slideFusion\.wirePreview\(\)/);
 });
 test('Static export, print and presentation preserve embedded sheet representation',()=>{
  assert.match(grid,/exportHtml\(objects:EmbeddedSheet\[\]=this.getObjects\(\)\)/);
- assert.ok((ui.match(/slideFusion\.exportHtml\(s\.embedded_objects\?\?\[\]\)/g)||[]).length>=3);
+ assert.ok((ui.match(/renderStaticSlideFrames\(s\.embedded_objects\?\?\[\]/g)||[]).length>=3);
 });

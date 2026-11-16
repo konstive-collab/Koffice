@@ -30,8 +30,8 @@ export class FusionUI{
   this.root.addEventListener('keydown',e=>{if(e.key==='Escape'){e.stopPropagation();this.close();}});
  }
  private current(){return this.getObjects().find(x=>x.id===this.objectId);}
- preview():string{
-  return this.getObjects().map(o=>{
+ preview(objects:EmbeddedSheet[]=this.getObjects()):string{
+  return objects.map(o=>{
    const cells=o.workbook.sheets[0].cells;
    const cols=Array.from({length:6},(_,i)=>column(i+1));
    const grid=Array.from({length:5},(_,r)=>'<tr>'+cols.map(c=>'<td>'+esc(cells[c+(r+1)]??'')+'</td>').join('')+'</tr>').join('');

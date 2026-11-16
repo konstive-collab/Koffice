@@ -39,6 +39,21 @@ pub struct BaseSlideSource {
     pub table: String,
     pub clean: SlideContent,
 }
+/// Logical coordinates in 0..1000 of slide width/height; independent of screen DPI.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct SlideObjectFrame { pub x:u16, pub y:u16, pub width:u16, pub height:u16 }
+impl SlideObjectFrame {
+    pub fn standard()->Self{Self{x:90,y:300,width:820,height:490}}
+    pub fn validate(&self)->Result<(),String>{
+        if self.width<150 || self.height<100 || self.x>1000 || self.y>1000 ||
+            u32::from(self.x)+u32::from(self.width)>1000 ||
+            u32::from(self.y)+u32::from(self.height)>1000 {
+            return Err("Object frame must stay inside the slide (min 150x100)".into());
+        }
+        Ok(())
+    }
+}
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Slide {
@@ -49,6 +64,8 @@ pub struct Slide {
     pub base_source: Option<BaseSlideSource>,
     #[serde(default,skip_serializing_if="Vec::is_empty")]
     pub embedded_objects: Vec<crate::fusion::EmbeddedObject>,
+    #[serde(default,skip_serializing_if="BTreeMap::is_empty")]
+    pub object_frames: BTreeMap<String,SlideObjectFrame>,
 }
 impl Slide {
     pub fn content(&self)->SlideContent{
@@ -277,7 +294,7 @@ fn parse_address(a: &str) -> Result<(usize,usize),String> {
 fn format_address(row:usize, mut col:usize)->String { let mut s=String::new(); while col>0 { col-=1; s.insert(0, (b'A'+(col%26) as u8) as char); col/=26; } format!("{s}{row}") }
 
 impl Deck {
-    pub fn blank() -> Self { Self { format: "koffice.slides.v1".into(), title: "Untitled presentation".into(), revision: 0, slides: vec![Slide { title: "Title slide".into(), body: "Click to add content".into(), notes: String::new(), base_source: None, embedded_objects:vec![] }] } }
+    pub fn blank() -> Self { Self { format: "koffice.slides.v1".into(), title: "Untitled presentation".into(), revision: 0, slides: vec![Slide { title: "Title slide".into(), body: "Click to add content".into(), notes: String::new(), base_source: None, embedded_objects:vec![], object_frames:BTreeMap::new() }] } }
     pub fn validate(&self) -> Result<(),String> {
         if self.format != "koffice.slides.v1" { return Err("Unsupported presentation format".into()); }
         check_title(&self.title)?;
@@ -286,6 +303,12 @@ impl Deck {
         let mut total_cells=0usize;
         for s in &self.slides {
             crate::fusion::validate_objects(&s.embedded_objects)?;
+            for (id, frame) in &s.object_frames {
+                if !s.embedded_objects.iter().any(|o|o.id()==id) {
+                    return Err("Object frame refers to missing embedded table".into());
+                }
+                frame.validate()?;
+            }
             total_objects=total_objects.checked_add(s.embedded_objects.len()).ok_or("Embedded object count overflow")?;
             for object in &s.embedded_objects {
                 total_cells=total_cells.checked_add(object.workbook().sheets[0].cells.len()).ok_or("Embedded cell count overflow")?;
@@ -309,7 +332,7 @@ impl Deck {
     }
     pub fn add(&mut self, expected:u64) -> Result<(),String> {
         check_revision(self.revision, expected)?; let mut copy=self.clone();
-        copy.slides.push(Slide {title:format!("Slide {}",copy.slides.len()+1), body:String::new(), notes:String::new(), base_source: None, embedded_objects:vec![]});
+        copy.slides.push(Slide {title:format!("Slide {}",copy.slides.len()+1), body:String::new(), notes:String::new(), base_source: None, embedded_objects:vec![], object_frames:BTreeMap::new()});
         copy.revision=copy.revision.checked_add(1).ok_or("Revision overflow")?; copy.validate()?; *self=copy; Ok(())
     }
     pub fn update(&mut self, expected:u64, index:usize, slide:Slide) -> Result<(),String> {
@@ -320,6 +343,7 @@ impl Deck {
         let mut replacement=slide;
         replacement.base_source=old.base_source.clone();
         replacement.embedded_objects=old.embedded_objects.clone();
+        replacement.object_frames=old.object_frames.clone();
         copy.slides[index]=replacement;
         copy.revision=copy.revision.checked_add(1).ok_or("Revision overflow")?; copy.validate()?; *self=copy; Ok(())
     }
@@ -329,7 +353,16 @@ impl Deck {
         check_revision(self.revision,expected)?;
         let object=crate::fusion::copy_sheet(label,source,sheet)?;
         let mut next=self.clone();
-        next.slides.get_mut(index).ok_or("Slide not found")?.embedded_objects.push(object);
+        let slide=next.slides.get_mut(index).ok_or("Slide not found")?;
+        let id=object.id().to_string();
+        let position=slide.embedded_objects.len();
+        // Default placement stacks incoming tables with a small shift until
+        // manually positioned by the user.
+        let mut frame=SlideObjectFrame::standard();
+        frame.y=250+(position as u16 % 3)*45;
+        frame.height=490;
+        slide.object_frames.insert(id,frame);
+        slide.embedded_objects.push(object);
         next.revision=next.revision.checked_add(1).ok_or("Revision overflow")?;
         next.validate()?;
         *self=next;Ok(())
@@ -351,7 +384,20 @@ impl Deck {
         let slide=next.slides.get_mut(index).ok_or("Slide not found")?;
         let before=slide.embedded_objects.len();
         slide.embedded_objects.retain(|x|x.id()!=id);
+        slide.object_frames.remove(id);
         if before==slide.embedded_objects.len(){return Err("Embedded table not found".into());}
+        next.revision=next.revision.checked_add(1).ok_or("Revision overflow")?;
+        next.validate()?;*self=next;Ok(())
+    }
+    /// Revision-guarded, atomic placement of a single embedded table.
+    /// The content and formula model stay intact.
+    pub fn move_embedded(&mut self, expected:u64, index:usize, id:&str, frame:SlideObjectFrame)->Result<(),String>{
+        check_revision(self.revision,expected)?;
+        frame.validate()?;
+        let mut next=self.clone();
+        let slide=next.slides.get_mut(index).ok_or("Slide not found")?;
+        if !slide.embedded_objects.iter().any(|o|o.id()==id){return Err("Embedded table not found".into());}
+        slide.object_frames.insert(id.to_string(),frame);
         next.revision=next.revision.checked_add(1).ok_or("Revision overflow")?;
         next.validate()?;*self=next;Ok(())
     }
@@ -422,6 +468,32 @@ pub fn save_json<T:Serialize>(path:&Path,object:&T)->Result<(),String> {
  }
  #[test] fn arithmetic_precedence() {let mut b=SheetBook::blank();b.put(0,0,"C3".into(),"=2+3*4".into()).unwrap(); assert_eq!(b.value(0,"C3").unwrap(),"14");}
 
+ #[test] fn slide_table_frames_survive_save_duplicate_and_reorder() {
+    let mut deck=Deck::blank();
+    deck.embed_sheet(0,0,"Sales".into(),&SheetBook::blank(),0).unwrap();
+    let id=deck.slides[0].embedded_objects[0].id().to_string();
+    let frame=SlideObjectFrame{x:230,y:180,width:500,height:420};
+    deck.move_embedded(1,0,&id,frame.clone()).unwrap();
+    let stored=serde_json::to_string(&deck).unwrap();
+    let reopened:Deck=serde_json::from_str(&stored).unwrap();
+    assert_eq!(reopened.slides[0].object_frames[&id],frame);
+    deck.duplicate(2,0).unwrap();
+    assert_eq!(deck.slides[1].object_frames[&id],frame);
+    deck.move_slide(3,1,0).unwrap();
+    assert_eq!(deck.slides[0].object_frames[&id],frame);
+ }
+ #[test] fn slide_table_frames_validate_bounds_and_rollback() {
+    let mut deck=Deck::blank();
+    deck.embed_sheet(0,0,"Sales".into(),&SheetBook::blank(),0).unwrap();
+    let id=deck.slides[0].embedded_objects[0].id().to_string();
+    let before=deck.clone();
+    assert!(deck.move_embedded(1,0,&id,SlideObjectFrame{x:900,y:0,width:200,height:200}).is_err());
+    assert!(deck.move_embedded(1,0,&id,SlideObjectFrame{x:0,y:0,width:149,height:100}).is_err());
+    assert!(deck.move_embedded(0,0,&id,SlideObjectFrame::standard()).is_err());
+    assert_eq!(deck,before);
+    deck.remove_embedded(1,0,&id).unwrap();
+    assert!(deck.slides[0].object_frames.is_empty());
+ }
  #[test] fn slides_embedded_sheet_roundtrip_and_formula_edit() {
     let mut source=SheetBook::blank();
     source.put(0,0,"A1".into(),"12".into()).unwrap();

@@ -1,3 +1,5 @@
+> **Fusion v0.17:** position and resize editable Sheets tables freely inside a slide with pointer or keyboard controls. Relative geometry survives save/reopen, slide duplication and reordering; print/HTML/presentation views retain placement. [Layout guide](docs/SLIDES-LAYOUT.md).
+
 > **Fusion v0.16:** Slides now embeds fully editable native Sheets worksheets and stores their formulas and cells in `.kslide`. Embedded sheets can also be transferred back to standalone Sheets, and are included in print/HTML/presentation views. [Slides worksheet guide](docs/SLIDES-SHEETS.md). AI remains optional.
 
 > **Fusion v0.15:** Base can now add manually refreshed **file-backed Slides**. Links survive restarting and moving/duplicating slides, protect hand-edited slides, and save a readable offline snapshot inside `.kslide`. [Base ↔ Slides guide](docs/BASE-SLIDES-LINKS.md). Not automatic synchronization.

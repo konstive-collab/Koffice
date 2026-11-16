@@ -116,3 +116,24 @@ button:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px soli
  .slide-embedded-objects{max-height:40vh}
  .slide-embedded-objects .fusion-preview{max-height:180px}
 }
+
+/* v0.17: responsive 1000-unit slide coordinates; interactive drag and resize. */
+.slide-screen{position:relative;overflow:hidden}
+.slide-placed-objects{position:absolute;inset:0;pointer-events:none;z-index:3}
+.slide-object{position:absolute;pointer-events:auto;display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden;border:1px solid #6eab8a;border-radius:7px;background:#f5f8f5;color:#18221d;box-shadow:0 4px 14px #0007;box-sizing:border-box}
+.slide-object-handle{flex:0 0 25px;min-height:25px;cursor:grab;user-select:none;touch-action:none;padding:4px 8px;display:flex;align-items:center;background:#254b36;color:#f8fff9;font:600 11px system-ui;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.slide-object-handle:active{cursor:grabbing}
+.slide-object-handle:focus-visible,.slide-object-resize:focus-visible{outline:2px solid #92f2b1;outline-offset:-2px}
+.slide-object-content{min-height:0;overflow:auto;flex:1}
+.slide-object-content .fusion-embed{margin:0;border:0;background:transparent;box-shadow:none}
+.slide-object-content .fusion-embed-head{display:flex;flex-wrap:wrap;padding:4px;gap:3px;min-height:24px;background:#e3ece5;color:#15241a}
+.slide-object-content .fusion-embed-head strong{font-size:10px}
+.slide-object-content .fusion-embed-head span{font-size:9px}
+.slide-object-content .fusion-embed-head button{font-size:10px;min-height:22px;padding:2px 5px}
+.slide-object-content .fusion-preview{overflow:auto;max-height:none}
+.slide-object-content .fusion-preview td,.slide-object-content .fusion-preview th{font-size:10px;padding:3px 4px}
+.slide-object-resize{position:absolute;right:0;bottom:0;width:23px;height:23px;display:grid;place-items:center;background:#254b36;color:white;border-top-left-radius:6px;cursor:nwse-resize;touch-action:none;user-select:none}
+@media(max-width:700px){
+ .slide-object-handle{font-size:9px;min-height:19px;flex-basis:19px}
+ .slide-object-resize{width:18px;height:18px}
+}
