@@ -9,6 +9,50 @@ const MAX_DOCUMENT_BYTES: u64 = 32 * 1024 * 1024;
 const MAX_CHARS: usize = 8_000_000;
 static SAVE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
+/// Physical page settings (millimeters), persisted independently from rich text.
+#[derive(Clone,Debug,Serialize,Deserialize,PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct PageSettings {
+    pub paper:String,
+    pub landscape:bool,
+    pub margin_top_mm:u16,
+    pub margin_right_mm:u16,
+    pub margin_bottom_mm:u16,
+    pub margin_left_mm:u16,
+    pub header:String,
+    pub footer:String,
+}
+impl Default for PageSettings {
+    fn default()->Self{
+        Self{paper:"a4".into(),landscape:false,margin_top_mm:20,
+            margin_right_mm:20,margin_bottom_mm:20,margin_left_mm:20,
+            header:String::new(),footer:String::new()}
+    }
+}
+impl PageSettings {
+    pub fn dimensions_mm(&self)->Result<(u16,u16),String>{
+        let (w,h)=match self.paper.as_str() {
+            "a4"=>(210,297),"letter"=>(216,279),"legal"=>(216,356),
+            _=>return Err("Unsupported paper format".into()),
+        };
+        Ok(if self.landscape{(h,w)}else{(w,h)})
+    }
+    pub fn validate(&self)->Result<(),String>{
+        let (width,height)=self.dimensions_mm()?;
+        for margin in [self.margin_top_mm,self.margin_right_mm,self.margin_bottom_mm,self.margin_left_mm]{
+            if !(5..=60).contains(&margin) {return Err("Page margins must be 5–60 mm".into());}
+        }
+        if u32::from(self.margin_top_mm)+u32::from(self.margin_bottom_mm)+40>=u32::from(height) ||
+            u32::from(self.margin_left_mm)+u32::from(self.margin_right_mm)+40>=u32::from(width) {
+            return Err("Page margins leave too little printable space".into());
+        }
+        if self.header.chars().count()>300 || self.footer.chars().count()>300 ||
+            self.header.contains('\0') || self.footer.contains('\0') {
+            return Err("Header/footer must contain at most 300 characters and no NUL".into());
+        }
+        Ok(())
+    }
+}
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Document {
@@ -17,6 +61,8 @@ pub struct Document {
     pub text: String,
     #[serde(default,skip_serializing_if="Option::is_none")]
     pub rich_html: Option<String>,
+    #[serde(default)]
+    pub page: PageSettings,
     pub revision: u64,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub embedded_objects: Vec<EmbeddedObject>,
@@ -33,7 +79,7 @@ pub enum Edit {
 
 impl Document {
     pub fn blank() -> Self {
-        Self { format: FORMAT.into(), title: "Untitled".into(), text: String::new(), rich_html: None, revision: 0, embedded_objects: vec![] }
+        Self { format: FORMAT.into(), title: "Untitled".into(), text: String::new(), rich_html: None, page: PageSettings::default(), revision: 0, embedded_objects: vec![] }
     }
     pub fn validate(&self) -> Result<(), String> {
         if self.format != FORMAT { return Err("Unsupported Koffice document format".into()); }
@@ -51,6 +97,7 @@ impl Document {
                 if lower.contains(forbidden) {return Err("Unsafe rich document markup".into());}
             }
         }
+        self.page.validate()?;
         fusion::validate_objects(&self.embedded_objects)?;
         Ok(())
     }
@@ -83,6 +130,17 @@ impl Document {
         Ok(())
     }
 
+    /// Atomic page setup. No rich body or embedded content is modified.
+    pub fn set_page(&mut self,expected_revision:u64,page:PageSettings)->Result<(),String>{
+        self.check_revision(expected_revision)?;
+        page.validate()?;
+        let mut next=self.clone();
+        next.page=page;
+        next.bump()?;
+        next.validate()?;
+        *self=next;
+        Ok(())
+    }
     /// Create an independent embedded copy of a complete worksheet.
     pub fn embed_sheet(&mut self, expected_revision: u64, label: String, source: &crate::suite::SheetBook, sheet: usize) -> Result<(), String> {
         self.check_revision(expected_revision)?;
@@ -203,6 +261,34 @@ mod tests {
         assert!(d.apply(0,Edit::ReplaceRich{text:"Bad".into(),html:"<img src=x onerror=alert(1)>".into()}).is_err());
         assert!(d.apply(0,Edit::ReplaceRich{text:"Bad".into(),html:"<script>alert(1)</script>".into()}).is_err());
         assert_eq!(d,before);
+    }
+    #[test] fn page_settings_roundtrip_legacy_and_validation() {
+        let mut doc=Document::blank();
+        let mut settings=PageSettings::default();
+        settings.paper="letter".into();settings.landscape=true;
+        settings.margin_left_mm=30;settings.header="Internal report".into();
+        settings.footer="Draft copy".into();
+        doc.set_page(0,settings.clone()).unwrap();
+        let saved=serde_json::to_vec(&doc).unwrap();
+        let reopened:Document=serde_json::from_slice(&saved).unwrap();
+        assert_eq!(reopened.page,settings);
+        let old=r#"{"format":"koffice.writer.v1","title":"Old","text":"Hello","revision":0}"#;
+        let legacy:Document=serde_json::from_str(old).unwrap();
+        assert_eq!(legacy.page,PageSettings::default());
+        legacy.validate().unwrap();
+    }
+    #[test] fn page_setup_rejects_unsafe_geometry_atomically() {
+        let mut doc=Document::blank();
+        let initial=doc.clone();
+        let mut invalid=PageSettings::default();
+        invalid.margin_top_mm=100;
+        assert!(doc.set_page(0,invalid).is_err());
+        assert_eq!(doc,initial);
+        let mut invalid=PageSettings::default();
+        invalid.paper="unknown".into();
+        assert!(doc.set_page(0,invalid).is_err());
+        assert!(doc.set_page(1,PageSettings::default()).is_err());
+        assert_eq!(doc,initial);
     }
     #[test] fn unicode_edit_offsets() {
         let mut d = Document::blank();

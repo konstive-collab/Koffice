@@ -1,3 +1,5 @@
+> **Koffice 0.20 — Writer page setup:** persistent A4/Letter/Legal page sizes, orientation, margins, header/footer text and explicit manual page breaks. Printing and HTML export now receive page CSS. [Documentation](docs/WRITER-PAGES.md). Automatic pagination and repeating per-page headers remain unimplemented.
+
 > **Koffice 0.19 — Writer Rich Text:** the Writer editing surface now supports actual headings, bold/italic/underline, lists, blockquotes, basic editable tables and local Undo/Redo, saved inside native `.kdoc`. The plain-text field remains for legacy automation, and untrusted HTML is sanitized. [Guide](docs/WRITER-RICH.md). Full page layout and DOCX compatibility are still future work.
 
 > **Koffice 0.18 — Editor Separation:** a four-product launcher starts Kodi Writer, Sheets, Slides and Base as independent native processes (each has separate in-memory document state and app-specific UI); integrated Suite remains available for cross-editor Fusion. Start directly with `koffice --app writer|sheets|slides|base`. [English guide](docs/EDITOR-SEPARATION.md). True separate installed executables and parity with mature office editors remain future work.

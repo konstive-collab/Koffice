@@ -2,7 +2,7 @@
  * Never render the raw rich_html from an opened .kdoc; strip all attributes,
  * event handlers, SVG, active content and unsupported tags first.
  */
-const BLOCKS=new Set(['p','div','h1','h2','h3','blockquote','ul','ol','li','table','thead','tbody','tr','td','th']);
+const BLOCKS=new Set(['p','div','h1','h2','h3','blockquote','ul','ol','li','table','thead','tbody','tr','td','th','section']);
 const INLINE=new Set(['strong','b','em','i','u','s','sub','sup','code','span']);
 const VOID=new Set(['br','hr']);
 const ALL=new Set([...BLOCKS,...INLINE,...VOID]);
@@ -42,7 +42,7 @@ export function readRichEditor(editor:HTMLElement):{text:string;html:string}{
  container.innerHTML=html;
  return {html,text:richTextContent(container)};
 }
-export type WriterFormat='bold'|'italic'|'underline'|'strike'|'h1'|'h2'|'paragraph'|'quote'|'bullet'|'number'|'date'|'line'|'table'|'undo'|'redo';
+export type WriterFormat='bold'|'italic'|'underline'|'strike'|'h1'|'h2'|'paragraph'|'quote'|'bullet'|'number'|'date'|'line'|'table'|'pagebreak'|'undo'|'redo';
 export function formatSelection(editor:HTMLElement,action:WriterFormat):void{
  editor.focus();
  const apply=(cmd:string,value?:string)=>document.execCommand(cmd,false,value);
@@ -64,6 +64,7 @@ export function formatSelection(editor:HTMLElement,action:WriterFormat):void{
    apply('insertHTML','<table><tbody>'+cells+'</tbody></table><p><br></p>');
    break;
   }
+  case 'pagebreak':apply('insertHTML','<section><br></section><p><br></p>');break;
   case 'undo':apply('undo');break;
   case 'redo':apply('redo');break;
  }
