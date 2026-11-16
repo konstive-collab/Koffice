@@ -28,7 +28,7 @@ test('Tauri exposes all workbook operations to the UI',()=>{
 });
 test('UI supports full-grid navigation and bounded DOM rendering',()=>{
  assert.match(ui,/gridViewport:GridViewport=\{row:1,col:1,rows:40,cols:16\}/);
- assert.match(ui,/Array\.from\(\{length:gridViewport\.rows\}/);
+ assert.match(ui,/gridRows\(gridViewport.row,gridViewport.rows,freeze.rows\)/);
  assert.match(ui,/id="sheet-go-to"/);
  assert.match(ui,/id="sheet-next-cols"/);
  assert.match(ui,/id="sheet-next-rows"/);
