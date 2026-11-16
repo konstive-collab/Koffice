@@ -114,3 +114,7 @@ New Sheets read-only capabilities include `workbook_find` (case-insensitive work
 ### Build validation
 
 Run `npm test`, `npm run build`, and `cargo test --manifest-path src-tauri/Cargo.toml`. CI includes Windows packaging. This is early alpha: do not use for critical documents without backups.
+
+## v0.8: standalone MCP server and Python SDK
+
+See [MCP integration guide](docs/MCP.md) ([русская версия](docs/MCP.ru.md)). The new Rust stdio server and Python SDK operate on an **isolated in-memory document session**, not the live desktop app or database. Supported tools: `koffice_snapshot`, `koffice_execute`, `koffice_reset`. GitHub Actions runs Rust tests and Python end-to-end tests against the built MCP binary.
