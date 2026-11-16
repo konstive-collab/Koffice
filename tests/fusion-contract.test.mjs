@@ -40,7 +40,7 @@ test('Writer UI embeds real cell editor and navigation',()=>{
   assert.match(ui,/Go to cell/);
   assert.match(ui,/onpaste/);
   assert.match(ui,/this\.saveCells/);
-  assert.match(ui,/exportHtml\(\):string/);
+  assert.match(ui,/exportHtml\(objects:EmbeddedSheet\[\]=this\.getObjects\(\)\):string/);
   assert.match(main,/fusion\.exportHtml\(\)/);
 });
 test('MCP binary still imports shared embedded types',()=>{
