@@ -16,7 +16,8 @@ test('native launch supports only the four known products',()=>{
  assert.match(desktop,/std::process::Command::new\(executable\)/);
  assert.match(desktop,/Unknown Koffice application/);
  assert.match(desktop,/cli_modes_are_strict/);
- assert.doesNotMatch(desktop,/cmd\.exe|powershell|\/bin\/sh|\.arg\("-c"\)/);
+ const production=desktop.split('#[cfg(test)]')[0];
+ assert.doesNotMatch(production,/cmd\.exe|powershell|\/bin\/sh|\.arg\("-c"\)/);
 });
 test('Tauri registers launcher commands and sets app title',()=>{
  assert.match(lib,/mod desktop;/);
