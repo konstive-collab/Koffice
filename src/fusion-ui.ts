@@ -1,5 +1,6 @@
 /** Koffice Fusion UI: an editable, self-contained Sheets grid hosted inside Writer. */
-export type EmbeddedSheet={kind:'sheet';id:string;label:string;workbook:{sheets:{cells:Record<string,string>}[];revision:number}};
+export type SheetLink={source_token:string;source_title:string;source_sheet:string;source_revision:number;clean_embedded_revision:number};
+export type EmbeddedSheet={kind:'sheet';id:string;label:string;link?:SheetLink;workbook:{sheets:{cells:Record<string,string>}[];revision:number}};
 const esc=(s:string)=>s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
 const address=(row:number,mutCol:number)=>{let col='';while(mutCol>0){mutCol--;col=String.fromCharCode(65+mutCol%26)+col;mutCol=Math.floor(mutCol/26);}return col+row;};
 const column=(n:number)=>address(1,n).replace(/\d+$/,'');
@@ -13,6 +14,10 @@ export class FusionUI{
   private saveCells:(id:string,updates:Record<string,string>)=>Promise<void>,
   private remove:(id:string)=>Promise<void>,
   private extract:(id:string)=>Promise<void>,
+  private checkLink:(id:string)=>Promise<void>,
+  private refreshLink:(id:string)=>Promise<void>,
+  private reconnectLink:(id:string)=>Promise<void>,
+  private detachLink:(id:string)=>Promise<void>,
   private notify:(message:string)=>void
  ){
   this.root=document.createElement('div');this.root.className='fusion-overlay';this.root.hidden=true;
@@ -25,7 +30,7 @@ export class FusionUI{
    const cells=o.workbook.sheets[0].cells;
    const cols=Array.from({length:6},(_,i)=>column(i+1));
    const grid=Array.from({length:5},(_,r)=>'<tr>'+cols.map(c=>'<td>'+esc(cells[c+(r+1)]??'')+'</td>').join('')+'</tr>').join('');
-   return '<section class="fusion-embed"><div class="fusion-embed-head"><strong>'+esc(o.label)+'</strong><span>'+Object.keys(cells).length+' cells · Sheets engine</span><button data-fusion-edit="'+esc(o.id)+'">Edit</button><button data-fusion-extract="'+esc(o.id)+'">To Sheets</button><button data-fusion-remove="'+esc(o.id)+'">Remove</button></div><div class="fusion-preview"><table><thead><tr>'+cols.map(c=>'<th>'+c+'</th>').join('')+'</tr></thead><tbody>'+grid+'</tbody></table></div></section>';
+   return '<section class="fusion-embed"><div class="fusion-embed-head"><strong>'+esc(o.label)+'</strong><span>'+Object.keys(cells).length+' cells · '+(o.link?'Session-linked to '+esc(o.link.source_title)+' / '+esc(o.link.source_sheet):'Independent Sheets copy')+'</span><button data-fusion-edit="'+esc(o.id)+'">Edit</button><button data-fusion-extract="'+esc(o.id)+'">To Sheets</button>'+(o.link?'<button data-fusion-check="'+esc(o.id)+'">Check</button><button data-fusion-refresh="'+esc(o.id)+'">Refresh</button><button data-fusion-reconnect="'+esc(o.id)+'">Reconnect</button><button data-fusion-detach="'+esc(o.id)+'">Detach</button>':'')+'<button data-fusion-remove="'+esc(o.id)+'">Remove</button></div><div class="fusion-preview"><table><thead><tr>'+cols.map(c=>'<th>'+c+'</th>').join('')+'</tr></thead><tbody>'+grid+'</tbody></table></div></section>';
   }).join('');
  }
  /** Static printable view with complete cell content. Large sparse sheets use address/value listings. */
@@ -52,6 +57,15 @@ export class FusionUI{
   document.querySelectorAll<HTMLButtonElement>('[data-fusion-extract]').forEach(b=>b.onclick=()=>{
    void this.extract(b.dataset.fusionExtract!).catch(e=>this.notify(String(e)));
   });
+  const wire=(selector:string,action:(id:string)=>Promise<void>,attribute:string)=>{
+    document.querySelectorAll<HTMLButtonElement>(selector).forEach(b=>b.onclick=()=>{
+      const id=b.getAttribute(attribute);if(id)void action(id).catch(e=>this.notify(String(e)));
+    });
+  };
+  wire('[data-fusion-check]',this.checkLink,'data-fusion-check');
+  wire('[data-fusion-refresh]',this.refreshLink,'data-fusion-refresh');
+  wire('[data-fusion-reconnect]',this.reconnectLink,'data-fusion-reconnect');
+  wire('[data-fusion-detach]',this.detachLink,'data-fusion-detach');
   document.querySelectorAll<HTMLButtonElement>('[data-fusion-remove]').forEach(b=>b.onclick=()=>{
    if(window.confirm('Remove this embedded table?'))void this.remove(b.dataset.fusionRemove!).catch(e=>this.notify(String(e)));
   });
