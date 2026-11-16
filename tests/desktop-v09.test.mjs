@@ -16,7 +16,7 @@ test('workspace shortcuts are registered',()=>{
 });
 test('preference bounds and storage fallback are present',()=>{
   assert.match(main,/Math\.max\(\.8,Math\.min\(1\.35/);
-  assert.match(main,/catch\{return \{compact:false,scale:1\}\}/);
+  assert.ok(main.includes('catch{return {compact:false,scale:1};}'));
   assert.match(main,/localStorage\.setItem/);
 });
 test('responsive and keyboard accessibility contracts',()=>{
