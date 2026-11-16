@@ -2,9 +2,10 @@ import { invoke } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import './style.css';
 import { BaseUI } from './base-ui';
+import { FusionUI, type EmbeddedSheet } from './fusion-ui';
 
 type Kind='writer'|'sheets'|'slides'|'base';
-type Doc={format:string;title:string;text:string;revision:number};
+type Doc={format:string;title:string;text:string;revision:number;embedded_objects?:EmbeddedSheet[]};
 type Book={format:string;title:string;revision:number;sheets:{name:string;cells:Record<string,string>}[]};
 type Slide={title:string;body:string;notes:string};
 type Deck={format:string;title:string;revision:number;slides:Slide[]};
@@ -44,7 +45,24 @@ function toAddress(row:number,col:number){let letters='';while(col>0){col--;lett
 function parseCsv(input:string):string[][]{const rows:string[][]=[];let row:string[]=[],value='',quoted=false;for(let i=0;i<input.length;i++){const ch=input[i];if(quoted){if(ch==='\"'&&input[i+1]==='\"'){value+='\"';i++;}else if(ch==='\"'){quoted=false;}else value+=ch;}else if(ch==='\"'&&value===''){quoted=true;}else if(ch===','){row.push(value);value='';}else if(ch==='\n'||ch==='\r'){if(ch==='\r'&&input[i+1]==='\n')i++;row.push(value);value='';rows.push(row);row=[];}else value+=ch;}if(quoted)throw Error('Unclosed CSV quote');if(row.length||value){row.push(value);rows.push(row);}return rows;}
 
 const app=document.querySelector<HTMLDivElement>('#app')!;
-app.innerHTML=`<aside class="sidebar"><div class="logo"><div class="logo-mark">K</div><div><b>Koffice</b><small>COMMUNITY ALPHA</small></div></div><span class="heading">WORKSPACE</span><button class="nav" id="nav-writer">▤ &nbsp; Writer <span>Text</span></button><button class="nav" id="nav-sheets">▦ &nbsp; Sheets <span>Data</span></button><button class="nav" id="nav-slides">▣ &nbsp; Slides <span>Present</span></button><button class="nav" id="nav-base">▥ &nbsp; Base <span>Database</span></button><div class="side-foot"><div class="dot"></div><span>Running locally<br><small>${source}</small></span></div></aside><main class="main"><header class="header"><div><div class="breadcrumb">Your workspace <span> / </span> <span id="kind">Writer</span></div><div class="document-name" id="docname">Untitled</div></div><div class="version">v0.9 · OPEN SOURCE</div></header><div class="toolbar"><button id="new">＋ New</button><button id="open">↥ Open</button><button id="save">↧ Save</button><button id="saveas">Save as</button><div class="sep"></div><button id="find">Find / Replace</button><button id="automation">Automation API</button><button id="export">Export</button><button id="print">Print / PDF</button><div class="spacer"></div><button id="toggle-compact" title="Show or hide sidebar" aria-label="Toggle sidebar">☰</button><button id="zoom-out" aria-label="Zoom out">−</button><span id="zoom-value" aria-live="polite">100%</span><button id="zoom-in" aria-label="Zoom in">＋</button><span class="status" id="status">Ready</span></div><section class="canvas" id="canvas"></section><footer><span id="details">Koffice</span><span id="location">Unsaved workspace</span><span id="rev">Revision 0</span></footer><div id="notice" role="status"></div></main>`;
+app.innerHTML=`<aside class="sidebar"><div class="logo"><div class="logo-mark">K</div><div><b>Koffice</b><small>COMMUNITY ALPHA</small></div></div><span class="heading">WORKSPACE</span><button class="nav" id="nav-writer">▤ &nbsp; Writer <span>Text</span></button><button class="nav" id="nav-sheets">▦ &nbsp; Sheets <span>Data</span></button><button class="nav" id="nav-slides">▣ &nbsp; Slides <span>Present</span></button><button class="nav" id="nav-base">▥ &nbsp; Base <span>Database</span></button><div class="side-foot"><div class="dot"></div><span>Running locally<br><small>${source}</small></span></div></aside><main class="main"><header class="header"><div><div class="breadcrumb">Your workspace <span> / </span> <span id="kind">Writer</span></div><div class="document-name" id="docname">Untitled</div></div><div class="version">v0.10 · OPEN SOURCE</div></header><div class="toolbar"><button id="new">＋ New</button><button id="open">↥ Open</button><button id="save">↧ Save</button><button id="saveas">Save as</button><div class="sep"></div><button id="find">Find / Replace</button><button id="automation">Automation API</button><button id="export">Export</button><button id="print">Print / PDF</button><div class="spacer"></div><button id="toggle-compact" title="Show or hide sidebar" aria-label="Toggle sidebar">☰</button><button id="zoom-out" aria-label="Zoom out">−</button><span id="zoom-value" aria-live="polite">100%</span><button id="zoom-in" aria-label="Zoom in">＋</button><span class="status" id="status">Ready</span></div><section class="canvas" id="canvas"></section><footer><span id="details">Koffice</span><span id="location">Unsaved workspace</span><span id="rev">Revision 0</span></footer><div id="notice" role="status"></div></main>`;
+const fusion=new FusionUI(
+  ()=>doc?.embedded_objects??[],
+  updatesCallback,
+  async id=>{await run(async()=>{await flush();doc=await invoke<Doc>('writer_remove_embedded',{expectedRevision:doc.revision,objectId:id});syncDirty();refresh();});},
+  message
+);
+async function updatesCallback(id:string,updates:Record<string,string>){
+  await run(async()=>{
+    await flush();
+    doc=await invoke<Doc>('writer_embedded_put',{expectedRevision:doc.revision,objectId:id,updates});
+    syncDirty();refresh();
+    const first=Object.keys(updates)[0];
+    if(first&&updates[first]?.startsWith('=')){
+      try{message(first+' = '+await invoke<string>('writer_embedded_value',{objectId:id,address:first}));}catch(e){message(String(e));}
+    }
+  });
+}
 const base = new BaseUI(message,()=>refresh(),async(table)=>{
   if (saved.sheets!==book.revision && !window.confirm('Replace the unsaved Sheets workbook with the database snapshot?')) return;
   const next=await invoke<Book>('base_to_workbook',{table});
@@ -55,12 +73,21 @@ function refresh(){document.querySelectorAll('.nav').forEach(x=>x.classList.remo
 function syncDirty(){dirty=true;$('status').textContent='● Unsaved changes';}
 function renderCanvas(){
  if(active==='base'){base.render();$('details').textContent=`${base.tables.length} tables · SQLite`;return;}
- if(active==='writer') { $('canvas').innerHTML=`<div class="writer-area"><div class="formatbar"><button data-format="bold"><b>B</b></button><button data-format="italic"><i>I</i></button><button data-format="underline"><u>U</u></button><button data-format="heading">H1</button><button data-format="bullet">• List</button><button data-format="number">1. List</button><button data-format="date">Date</button><button data-format="line">Divider</button><button id="writer-find">Find / Replace</button><span class="hint">Plain text · keyboard shortcuts work in editor</span></div><div class="paper"><input class="paper-title" id="writer-title" maxlength="200" aria-label="Document title" value="${escapeHtml(doc.title)}"><div class="paper-meta">KOFFICE WRITER · YOUR DOCUMENT</div><textarea id="text" aria-label="Document content" spellcheck="true" placeholder="Every great idea starts with a blank page..."></textarea></div></div>`; const el=$('text') as HTMLTextAreaElement; el.value=doc.text; $('details').textContent=`${doc.text.trim()?doc.text.trim().split(/\s+/u).length:0} words · ${[...doc.text].length} characters`;
+ if(active==='writer') { $('canvas').innerHTML=`<div class="writer-area"><div class="formatbar"><button data-format="bold"><b>B</b></button><button data-format="italic"><i>I</i></button><button data-format="underline"><u>U</u></button><button data-format="heading">H1</button><button data-format="bullet">• List</button><button data-format="number">1. List</button><button data-format="date">Date</button><button data-format="line">Divider</button><button id="writer-find">Find / Replace</button><button id="writer-embed">Insert Sheets table</button><span class="hint">Plain text · keyboard shortcuts work in editor</span></div><div class="paper"><input class="paper-title" id="writer-title" maxlength="200" aria-label="Document title" value="${escapeHtml(doc.title)}"><div class="paper-meta">KOFFICE WRITER · YOUR DOCUMENT</div><textarea id="text" aria-label="Document content" spellcheck="true" placeholder="Every great idea starts with a blank page..."></textarea><div class="fusion-document-objects">${fusion.preview()}</div></div></div>`; const el=$('text') as HTMLTextAreaElement; el.value=doc.text; $('details').textContent=`${doc.text.trim()?doc.text.trim().split(/\s+/u).length:0} words · ${[...doc.text].length} characters`;
   let timer:ReturnType<typeof setTimeout>|undefined;
   el.oninput=()=>{syncDirty();clearTimeout(timer);timer=setTimeout(()=>void commitWriter(),360);};
   el.onblur=()=>{clearTimeout(timer);void commitWriter();};
   ($('writer-title') as HTMLInputElement).onchange=()=>void run(async()=>{await commitWriter();let v=($('writer-title') as HTMLInputElement).value; if(v===doc.title)return;doc=await invoke('rename_document',{expectedRevision:doc.revision,title:v});syncDirty();refresh();});
   $('writer-find').onclick=()=>findReplace();
+  $('writer-embed').onclick=()=>void run(async()=>{
+    await flush();
+    const useCurrent=window.confirm('Copy the currently active Sheets worksheet? Cancel creates a new blank embedded sheet.');
+    const label=window.prompt('Embedded table name',useCurrent?book.sheets[sheetIndex].name:'Embedded table');
+    if(!label)return;
+    doc=await invoke<Doc>('writer_embed_sheet',{expectedRevision:doc.revision,label,sourceSheet:useCurrent?sheetIndex:null});
+    syncDirty();refresh();message('Editable Sheets table inserted; remember to save Writer.');
+  });
+  fusion.wirePreview();
   document.querySelectorAll<HTMLButtonElement>('[data-format]').forEach(btn=>btn.onclick=()=>{const key=btn.dataset.format!;if(key==='date'){insertText(new Date().toLocaleDateString());return;}if(key==='line'){insertText('\n─────────────────\n');return;}if(key==='bullet'||key==='number'){insertText(key==='bullet'?'\n• ':'\n1. ');return;}const a=el.selectionStart,b=el.selectionEnd,part=el.value.slice(a,b)||'text';if(key==='heading'){replaceSelection('# '+part);return;}const mark=key==='bold'?'**':key==='italic'?'*':'__';replaceSelection(mark+part+mark);});
   function replaceSelection(v:string){el.setRangeText(v,el.selectionStart,el.selectionEnd,'end');el.dispatchEvent(new Event('input'));el.focus();}function insertText(v:string){replaceSelection(v);}
  } else if(active==='sheets'){

@@ -1,5 +1,7 @@
 //! File format and editing kernel. GUI and future AI adapters must call this layer.
 use serde::{Deserialize, Serialize};
+use crate::fusion::{self, EmbeddedObject};
+use std::collections::BTreeMap;
 use std::{fs, io::Write, path::{Path, PathBuf}, sync::atomic::{AtomicU64, Ordering}};
 
 pub const FORMAT: &str = "koffice.writer.v1";
@@ -7,13 +9,15 @@ const MAX_DOCUMENT_BYTES: u64 = 32 * 1024 * 1024;
 const MAX_CHARS: usize = 8_000_000;
 static SAVE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Document {
     pub format: String,
     pub title: String,
     pub text: String,
     pub revision: u64,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub embedded_objects: Vec<EmbeddedObject>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -26,12 +30,13 @@ pub enum Edit {
 
 impl Document {
     pub fn blank() -> Self {
-        Self { format: FORMAT.into(), title: "Untitled".into(), text: String::new(), revision: 0 }
+        Self { format: FORMAT.into(), title: "Untitled".into(), text: String::new(), revision: 0, embedded_objects: vec![] }
     }
     pub fn validate(&self) -> Result<(), String> {
         if self.format != FORMAT { return Err("Unsupported Koffice document format".into()); }
         if self.title.trim().is_empty() || self.title.chars().count() > 200 { return Err("Document title must contain 1–200 characters".into()); }
         if self.text.chars().count() > MAX_CHARS { return Err("Document exceeds the maximum character limit".into()); }
+        fusion::validate_objects(&self.embedded_objects)?;
         Ok(())
     }
     /// Atomic-in-memory edit. Unicode offsets are character indices, never byte offsets.
@@ -54,6 +59,48 @@ impl Document {
         candidate.revision = candidate.revision.checked_add(1).ok_or("Revision overflow")?;
         candidate.validate()?;
         *self = candidate;
+        Ok(())
+    }
+
+    /// Create an independent embedded copy of a complete worksheet.
+    pub fn embed_sheet(&mut self, expected_revision: u64, label: String, source: &crate::suite::SheetBook, sheet: usize) -> Result<(), String> {
+        self.check_revision(expected_revision)?;
+        let mut next = self.clone();
+        next.embedded_objects.push(fusion::copy_sheet(label, source, sheet)?);
+        next.bump()?;
+        next.validate()?;
+        *self = next;
+        Ok(())
+    }
+    /// Edit an embedded worksheet using the exact Sheets engine and its formula rules.
+    /// Both workbook and document revision increments commit together or not at all.
+    pub fn embedded_put(&mut self, expected_revision: u64, object_id: &str, updates: BTreeMap<String, String>) -> Result<(), String> {
+        self.check_revision(expected_revision)?;
+        let mut next = self.clone();
+        let object = next.embedded_objects.iter_mut().find(|x| x.id() == object_id).ok_or("Embedded object not found")?;
+        let current = object.workbook().revision;
+        object.workbook_mut().put_batch(current, 0, updates)?;
+        next.bump()?;
+        next.validate()?;
+        *self = next;
+        Ok(())
+    }
+    pub fn remove_embedded(&mut self, expected_revision: u64, object_id: &str) -> Result<(), String> {
+        self.check_revision(expected_revision)?;
+        let mut next = self.clone();
+        let before = next.embedded_objects.len();
+        next.embedded_objects.retain(|x| x.id() != object_id);
+        if next.embedded_objects.len() == before { return Err("Embedded object not found".into()); }
+        next.bump()?;
+        next.validate()?;
+        *self = next;
+        Ok(())
+    }
+    fn check_revision(&self, expected: u64) -> Result<(), String> {
+        if self.revision != expected { Err("Revision conflict".into()) } else { Ok(()) }
+    }
+    fn bump(&mut self) -> Result<(), String> {
+        self.revision = self.revision.checked_add(1).ok_or("Revision overflow")?;
         Ok(())
     }
 }
@@ -132,6 +179,53 @@ mod tests {
         let mut d = Document::blank();
         d.format = "other".into();
         assert!(d.validate().is_err());
+    }
+
+    #[test]
+    fn embedded_sheet_roundtrip_preserves_formulas_and_legacy_documents() {
+        let mut source=crate::suite::SheetBook::blank();
+        source.put(0,0,"A1".into(),"8".into()).unwrap();
+        source.put(1,0,"A2".into(),"4".into()).unwrap();
+        source.put(2,0,"B1".into(),"=SUM(A1:A2)".into()).unwrap();
+        let mut doc=Document::blank();
+        doc.embed_sheet(0,"Results".into(),&source,0).unwrap();
+        let bytes=serde_json::to_vec(&doc).unwrap();
+        let recovered:Document=serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(recovered,doc);
+        assert_eq!(recovered.embedded_objects[0].workbook().value(0,"B1").unwrap(),"12");
+
+        // Reopen the actual .kdoc file: no sidecar .ksheet is needed.
+        let path=std::env::temp_dir().join(format!("fusion-{}-{}.kdoc",std::process::id(),SAVE_SEQUENCE.fetch_add(1, Ordering::Relaxed)));
+        save(&path,&doc).unwrap();
+        let disk=open(&path).unwrap();
+        assert_eq!(disk.embedded_objects[0].workbook().value(0,"B1").unwrap(),"12");
+        assert_eq!(disk,doc);
+        std::fs::remove_file(path).unwrap();
+        // Legacy kdoc did not have embedded_objects: it must still open.
+        let old=r#"{"format":"koffice.writer.v1","title":"Old","text":"hello","revision":0}"#;
+        let legacy:Document=serde_json::from_str(old).unwrap();
+        assert!(legacy.embedded_objects.is_empty());
+        assert!(legacy.validate().is_ok());
+    }
+    #[test]
+    fn embedded_edits_are_atomic_and_do_not_mutate_original_workbook() {
+        let mut source=crate::suite::SheetBook::blank();
+        source.put(0,0,"A1".into(),"10".into()).unwrap();
+        let mut doc=Document::blank();
+        doc.embed_sheet(0,"Table".into(),&source,0).unwrap();
+        let id=doc.embedded_objects[0].id().to_string();
+        let mut invalid=BTreeMap::new();invalid.insert("A1".into(),"99".into());invalid.insert("A0".into(),"bad".into());
+        assert!(doc.embedded_put(1,&id,invalid).is_err());
+        assert_eq!(doc.revision,1);
+        assert_eq!(doc.embedded_objects[0].workbook().sheets[0].cells["A1"],"10");
+        let mut valid=BTreeMap::new();valid.insert("A1".into(),"15".into());
+        doc.embedded_put(1,&id,valid).unwrap();
+        assert_eq!(doc.revision,2);
+        assert_eq!(doc.embedded_objects[0].workbook().revision,1);
+        assert_eq!(source.sheets[0].cells["A1"],"10");
+        assert!(doc.remove_embedded(1,&id).is_err());
+        doc.remove_embedded(2,&id).unwrap();
+        assert!(doc.embedded_objects.is_empty());
     }
     #[test] fn save_and_reopen() {
         let mut path = std::env::temp_dir();

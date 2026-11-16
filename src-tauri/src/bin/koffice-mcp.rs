@@ -3,6 +3,7 @@
 #[path = "../engine.rs"] mod engine;
 #[path = "../suite.rs"] mod suite;
 #[path = "../automation.rs"] mod automation;
+#[path = "../fusion.rs"] mod fusion;
 
 use std::io::{self, BufRead, Read, Write};
 use serde_json::{json, Value};

@@ -1,3 +1,5 @@
+> **Koffice Fusion v0.10:** Writer now supports self-contained embedded Sheets objects with the real Rust spreadsheet engine. See [Fusion documentation](docs/FUSION.md). This is the first cross-app integration milestone, not full OLE or linked-data support.
+
 > **Project priority (v0.9):** cross-platform desktop usability, performance and reliable document editing are the primary goals. AI integrations are optional. See [Desktop v0.9 improvements and platform build guide](docs/desktop-v0.9.md).
 
 ## v0.6 alpha
