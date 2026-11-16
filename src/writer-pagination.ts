@@ -91,7 +91,7 @@ export function paginateWriterBlocks(
   const probe=node.cloneNode(true);
   measureBody.append(probe);
   const fits=measureBody.scrollHeight<=height+1;
-  probe.remove();
+  measureBody.removeChild(probe);
   return fits;
  }
  function append(node:Node){

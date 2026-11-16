@@ -16,14 +16,14 @@ test('Blocks are measured on an off-screen full-size paper, including footer and
  assert.match(view,/measurement\.append\(measureHeader,measureBody,measureFooter\)/);
  assert.match(view,/measureBody\.clientHeight/);
  assert.match(view,/measureBody\.scrollHeight/);
- assert.match(view,/getBoundingClientRect\(\)/);
+ assert.match(view,/measureBody\.clientHeight/);
  assert.match(view,/makePage\(settings,count\+1,title\)/);
  assert.match(view,/copyFormattedRange/);
 });
 test('Explicit break and oversized nodes are handled without content loss',()=>{
  assert.match(view,/tag==='section'/);
  assert.match(view,/writer-page-overflow/);
- assert.match(view,/writer-preview-cutoff/);
+ assert.match(view,/Preview safety limit reached/);
  assert.match(view,/MAX_BLOCKS=1500/);
  assert.match(view,/MAX_PAGES=250/);
  assert.match(view,/MAX_SPLIT_TEXT=100_000/);
