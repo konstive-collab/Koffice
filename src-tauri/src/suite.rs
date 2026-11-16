@@ -217,7 +217,7 @@ fn evaluate(cells: &BTreeMap<String, String>, address: &str, stack: &mut BTreeSe
             return evaluate(cells, &ref_addr, stack, depth+1);
         }
         // Arithmetic expressions support numeric constants and + - * /, with standard precedence.
-        let mut parser = Parser { bytes: expr.as_bytes(), pos: 0 };
+        let mut parser = Parser { bytes: expr.as_bytes(), pos: 0, cells, stack, depth };
         let n = parser.expr()?; parser.ws();
         if parser.pos != parser.bytes.len() || !n.is_finite() { return Err("Invalid formula".into()); }
         Ok(format_number(n))
@@ -226,14 +226,38 @@ fn evaluate(cells: &BTreeMap<String, String>, address: &str, stack: &mut BTreeSe
     result
 }
 fn format_number(n: f64) -> String { if n.fract() == 0.0 { format!("{n:.0}") } else { n.to_string() } }
-struct Parser<'a> { bytes: &'a [u8], pos: usize }
-impl Parser<'_> {
+struct Parser<'a,'b> {
+    bytes: &'a [u8],
+    pos: usize,
+    cells: &'a BTreeMap<String,String>,
+    stack: &'b mut BTreeSet<String>,
+    depth: usize,
+}
+impl Parser<'_,'_> {
     fn ws(&mut self) { while self.bytes.get(self.pos) == Some(&b' ') { self.pos += 1; } }
     fn expr(&mut self) -> Result<f64, String> { let mut a = self.term()?; loop { self.ws(); match self.bytes.get(self.pos) { Some(b'+') => { self.pos+=1; a+=self.term()?; }, Some(b'-') => { self.pos+=1; a-=self.term()?; }, _=>return Ok(a) } } }
     fn term(&mut self) -> Result<f64, String> { let mut a = self.atom()?; loop { self.ws(); match self.bytes.get(self.pos) { Some(b'*') => { self.pos+=1; a*=self.atom()?; }, Some(b'/') => { self.pos+=1; let b=self.atom()?; if b==0.0 { return Err("Division by zero".into()); } a/=b; }, _=>return Ok(a) } } }
     fn atom(&mut self) -> Result<f64, String> {
         self.ws(); if self.bytes.get(self.pos)==Some(&b'-') { self.pos+=1; return Ok(-self.atom()?); }
         if self.bytes.get(self.pos)==Some(&b'(') { self.pos+=1; let n=self.expr()?; self.ws(); if self.bytes.get(self.pos)!=Some(&b')') { return Err("Missing ')'".into()); } self.pos+=1; return Ok(n); }
+        // Resolve A1, $A$1, A$1 and $A1 in arithmetic expressions.
+        if self.bytes.get(self.pos).is_some_and(|b| *b==b'$' || b.is_ascii_uppercase()) {
+            let start=self.pos;
+            if self.bytes.get(self.pos)==Some(&b'$'){self.pos+=1;}
+            let letters=self.pos;
+            while self.bytes.get(self.pos).is_some_and(u8::is_ascii_uppercase){self.pos+=1;}
+            if letters==self.pos {return Err("Invalid cell reference".into());}
+            if self.bytes.get(self.pos)==Some(&b'$'){self.pos+=1;}
+            let digits=self.pos;
+            while self.bytes.get(self.pos).is_some_and(u8::is_ascii_digit){self.pos+=1;}
+            if digits==self.pos {return Err("Invalid cell reference".into());}
+            let text=std::str::from_utf8(&self.bytes[start..self.pos]).map_err(|e|e.to_string())?;
+            let address=text.replace('$',"");
+            parse_address(&address)?;
+            let evaluated=evaluate(self.cells,&address,self.stack,self.depth+1)?;
+            if evaluated.trim().is_empty(){return Ok(0.0);}
+            return evaluated.parse::<f64>().map_err(|_|"Reference is not a number".into());
+        }
         let start=self.pos;
         while self.bytes.get(self.pos).is_some_and(|b| b.is_ascii_digit() || *b==b'.') { self.pos+=1; }
         if start==self.pos { return Err("Expected number".into()); }
@@ -376,6 +400,26 @@ pub fn save_json<T:Serialize>(path:&Path,object:&T)->Result<(),String> {
  use super::*;
  #[test] fn sums_cells_and_preserves_formula() {let mut b=SheetBook::blank(); b.put(0,0,"A1".into(),"12".into()).unwrap(); b.put(1,0,"A2".into(),"8".into()).unwrap(); b.put(2,0,"B1".into(),"=SUM(A1:A2)".into()).unwrap(); assert_eq!(b.value(0,"B1").unwrap(),"20"); assert_eq!(b.sheets[0].cells["B1"],"=SUM(A1:A2)");}
  #[test] fn circular_and_out_of_bounds() {let mut b=SheetBook::blank(); assert!(b.put(0,0,"A0".into(),"x".into()).is_err()); b.put(0,0,"A1".into(),"=B1".into()).unwrap(); b.put(1,0,"B1".into(),"=A1".into()).unwrap(); assert!(b.value(0,"A1").is_err());}
+ #[test] fn arithmetic_with_cell_references_and_absolute_addresses() {
+   let mut book=SheetBook::blank();
+   book.put(0,0,"A1".into(),"12".into()).unwrap();
+   book.put(1,0,"A2".into(),"3".into()).unwrap();
+   book.put(2,0,"B1".into(),"=A1*2+A2".into()).unwrap();
+   book.put(3,0,"B2".into(),"=($A$1+A2)/3".into()).unwrap();
+   book.put(4,0,"B3".into(),"=A1+A2*2".into()).unwrap();
+   assert_eq!(book.value(0,"B1").unwrap(),"27");
+   assert_eq!(book.value(0,"B2").unwrap(),"5");
+   assert_eq!(book.value(0,"B3").unwrap(),"18");
+ }
+ #[test] fn referenced_formula_cycle_and_text_are_rejected() {
+   let mut book=SheetBook::blank();
+   book.put(0,0,"A1".into(),"=B1+1".into()).unwrap();
+   book.put(1,0,"B1".into(),"=A1+1".into()).unwrap();
+   assert_eq!(book.value(0,"A1").unwrap_err(),"Circular reference");
+   book.put(2,0,"C1".into(),"text".into()).unwrap();
+   book.put(3,0,"D1".into(),"=C1*2".into()).unwrap();
+   assert!(book.value(0,"D1").unwrap_err().contains("not a number"));
+ }
  #[test] fn arithmetic_precedence() {let mut b=SheetBook::blank();b.put(0,0,"C3".into(),"=2+3*4".into()).unwrap(); assert_eq!(b.value(0,"C3").unwrap(),"14");}
 
  #[test] fn slides_embedded_sheet_roundtrip_and_formula_edit() {

@@ -1,6 +1,6 @@
 # Koffice Fusion v0.16: editable Sheets in Slides
 
-This iteration adds actual **editable native Sheets worksheets inside a slide**. Unlike a screenshot or text snapshot, an embedded worksheet retains full cell addresses and formula strings. It is a separate copy of the source worksheet and remains editable after reopening the native `.kslide`.
+This iteration adds actual **editable native Sheets worksheets inside a slide**. Unlike a screenshot or text snapshot, an embedded worksheet retains full cell addresses and formula strings, including arithmetic with cell references such as `=A1*2` and absolute references such as `=($A$1+A2)/3`. It is a separate copy of the source worksheet and remains editable after reopening the native `.kslide`.
 
 ## Workflow
 

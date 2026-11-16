@@ -11,6 +11,8 @@ test('Slides persists optional embedded native sheet objects',()=>{
  assert.match(suite,/skip_serializing_if="Vec::is_empty"/);
  assert.match(suite,/legacy_slides_without_embedded_objects_still_load/);
  assert.match(suite,/slides_embedded_sheet_roundtrip_and_formula_edit/);
+ assert.match(suite,/arithmetic_with_cell_references_and_absolute_addresses/);
+ assert.match(suite,/referenced_formula_cycle_and_text_are_rejected/);
 });
 test('Embedded edits use the native Sheets engine with atomic validation',()=>{
  assert.match(suite,/pub fn embedded_put\(/);
