@@ -72,6 +72,7 @@ pub fn base_snapshot_slide(table: &str, query: &QueryResult) -> Result<Slide, St
         title: format!("Base: {table}"),
         body: lines.join("\n"),
         notes: format!("Static snapshot from Koffice Base table '{table}'. No live database link. First {} rows, first {} columns displayed.{}", query.rows.len().min(ROWS),columns.len(),if omitted{" Additional source data omitted."}else{""}),
+        base_source: None,
     };
     if slide.body.len() > 16_384 || slide.notes.len() > 16_384 {return Err("Slide snapshot too large".into());}
     Ok(slide)

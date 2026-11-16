@@ -7,6 +7,7 @@ mod fusion_transfer;
 mod fusion_links;
 mod fusion_files;
 mod fusion_manager;
+mod base_slide_links;
 use engine::{Document, Edit};
 use suite::{Deck, SheetBook, Slide};
 use std::{path::Path, sync::{Mutex,atomic::{AtomicU64,Ordering}},time::{SystemTime,UNIX_EPOCH}};
@@ -208,6 +209,35 @@ fn fusion_apply_refresh(s:State<'_,Workspace>,token:u64,expected_revision:u64)->
 #[tauri::command] fn deck_open(s:State<'_,Workspace>,path:String)->Result<Deck,String>{let d:Deck=suite::load_json(Path::new(&path))?;d.validate()?;*lock(&s.slides)?=d.clone();Ok(d)}
 #[tauri::command] fn deck_save(s:State<'_,Workspace>,path:String)->Result<(),String>{let d=lock(&s.slides)?;d.validate()?;suite::save_json(Path::new(&path),&*d)}
 
+/// Explicit opt-in: append a slide linked to the currently open Base file.
+/// A complete static snapshot is stored in the .kslide for offline display.
+#[tauri::command]
+fn base_link_to_slides(s:State<'_,Workspace>,table:String,expected_revision:u64)->Result<Deck,String>{
+    let path=lock(&s.base)?.path().ok_or("Open a database in Base first")?;
+    let mut deck=lock(&s.slides)?;
+    base_slide_links::create(&mut deck,expected_revision,&path,&table)?;
+    Ok(deck.clone())
+}
+/// Only call after UI shows the stored source path and receives approval.
+#[tauri::command]
+fn slides_base_link_status(s:State<'_,Workspace>,index:usize)->Result<base_slide_links::BaseSlideLinkStatus,String>{
+    let deck=lock(&s.slides)?;
+    base_slide_links::inspect(&deck,index)
+}
+/// Only call after user approves the exact stored source path.
+#[tauri::command]
+fn slides_base_link_refresh(s:State<'_,Workspace>,index:usize,expected_revision:u64)->Result<Deck,String>{
+    let mut deck=lock(&s.slides)?;
+    base_slide_links::refresh(&mut deck,expected_revision,index)?;
+    Ok(deck.clone())
+}
+#[tauri::command]
+fn slides_base_link_detach(s:State<'_,Workspace>,index:usize,expected_revision:u64)->Result<Deck,String>{
+    let mut deck=lock(&s.slides)?;
+    base_slide_links::detach(&mut deck,expected_revision,index)?;
+    Ok(deck.clone())
+}
+
 #[tauri::command] fn base_path(s:State<'_,Workspace>)->Result<Option<String>,String>{Ok(lock(&s.base)?.path())}
 #[tauri::command] fn base_create(s:State<'_,Workspace>,path:String)->Result<(),String>{lock(&s.base)?.create(&path)}
 #[tauri::command] fn base_open(s:State<'_,Workspace>,path:String)->Result<(),String>{lock(&s.base)?.open(&path)}
@@ -272,4 +302,4 @@ fn automation_execute(s:State<'_,Workspace>,batch:automation::AutomationBatch)->
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run(){tauri::Builder::default().plugin(tauri_plugin_dialog::init()).manage(Workspace{writer:Mutex::new(Document::blank()),sheets:Mutex::new(SheetBook::blank()),slides:Mutex::new(Deck::blank()),base:Mutex::new(Database::default()),sheets_namespace:format!("{}-{}",std::process::id(),SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos()),sheets_generation:AtomicU64::new(1),fusion_preview:Mutex::new(None),fusion_preview_sequence:AtomicU64::new(1)}).invoke_handler(tauri::generate_handler![snapshot,new_document,edit_document,rename_document,open_document,save_document,writer_embed_sheet,writer_embedded_put,writer_remove_embedded,writer_embedded_value,writer_embedded_to_sheets,base_snapshot_to_slides,writer_embed_linked_sheet,writer_link_status,writer_refresh_link,writer_reconnect_link,writer_detach_link,fusion_file_sheets,writer_attach_file_sheet,writer_file_link_status,writer_refresh_file_link,writer_reconnect_file_link,writer_detach_file_link,fusion_graph,fusion_preview_refresh,fusion_apply_refresh,workbook_snapshot,workbook_new,workbook_put,workbook_add_sheet,workbook_put_batch,workbook_rename_sheet,workbook_delete_sheet,workbook_value,workbook_find,workbook_statistics,workbook_open,workbook_save,deck_snapshot,deck_new,deck_add,deck_update,deck_delete,deck_duplicate,deck_move,deck_open,deck_save,base_path,base_create,base_open,base_tables,base_create_table,base_insert,base_update,base_delete,base_browse,base_select,base_import_csv,base_indexes,base_create_index,base_delete_index,base_browse_page,base_to_workbook,base_integrity_check,base_backup,base_export_table_csv,base_group_report,automation_snapshot,automation_execute]).run(tauri::generate_context!()).expect("Failed to start Koffice")}
+pub fn run(){tauri::Builder::default().plugin(tauri_plugin_dialog::init()).manage(Workspace{writer:Mutex::new(Document::blank()),sheets:Mutex::new(SheetBook::blank()),slides:Mutex::new(Deck::blank()),base:Mutex::new(Database::default()),sheets_namespace:format!("{}-{}",std::process::id(),SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos()),sheets_generation:AtomicU64::new(1),fusion_preview:Mutex::new(None),fusion_preview_sequence:AtomicU64::new(1)}).invoke_handler(tauri::generate_handler![snapshot,new_document,edit_document,rename_document,open_document,save_document,writer_embed_sheet,writer_embedded_put,writer_remove_embedded,writer_embedded_value,writer_embedded_to_sheets,base_snapshot_to_slides,base_link_to_slides,slides_base_link_status,slides_base_link_refresh,slides_base_link_detach,writer_embed_linked_sheet,writer_link_status,writer_refresh_link,writer_reconnect_link,writer_detach_link,fusion_file_sheets,writer_attach_file_sheet,writer_file_link_status,writer_refresh_file_link,writer_reconnect_file_link,writer_detach_file_link,fusion_graph,fusion_preview_refresh,fusion_apply_refresh,workbook_snapshot,workbook_new,workbook_put,workbook_add_sheet,workbook_put_batch,workbook_rename_sheet,workbook_delete_sheet,workbook_value,workbook_find,workbook_statistics,workbook_open,workbook_save,deck_snapshot,deck_new,deck_add,deck_update,deck_delete,deck_duplicate,deck_move,deck_open,deck_save,base_path,base_create,base_open,base_tables,base_create_table,base_insert,base_update,base_delete,base_browse,base_select,base_import_csv,base_indexes,base_create_index,base_delete_index,base_browse_page,base_to_workbook,base_integrity_check,base_backup,base_export_table_csv,base_group_report,automation_snapshot,automation_execute]).run(tauri::generate_context!()).expect("Failed to start Koffice")}

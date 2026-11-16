@@ -8,7 +8,8 @@ import { FusionManagerUI, type LinkNode, type PreviewReport } from './fusion-man
 type Kind='writer'|'sheets'|'slides'|'base';
 type Doc={format:string;title:string;text:string;revision:number;embedded_objects?:EmbeddedSheet[]};
 type Book={format:string;title:string;revision:number;sheets:{name:string;cells:Record<string,string>}[]};
-type Slide={title:string;body:string;notes:string};
+type BaseSlideSource={database_path:string;table:string;clean:{title:string;body:string;notes:string}};
+type Slide={title:string;body:string;notes:string;base_source?:BaseSlideSource};
 type Deck={format:string;title:string;revision:number;slides:Slide[]};
 let active:Kind='writer',doc:Doc,book:Book,deck:Deck,slideIndex=0,sheetIndex=0;
 const paths:Record<Kind,string|null>={writer:null,sheets:null,slides:null,base:null};
@@ -46,7 +47,7 @@ function toAddress(row:number,col:number){let letters='';while(col>0){col--;lett
 function parseCsv(input:string):string[][]{const rows:string[][]=[];let row:string[]=[],value='',quoted=false;for(let i=0;i<input.length;i++){const ch=input[i];if(quoted){if(ch==='\"'&&input[i+1]==='\"'){value+='\"';i++;}else if(ch==='\"'){quoted=false;}else value+=ch;}else if(ch==='\"'&&value===''){quoted=true;}else if(ch===','){row.push(value);value='';}else if(ch==='\n'||ch==='\r'){if(ch==='\r'&&input[i+1]==='\n')i++;row.push(value);value='';rows.push(row);row=[];}else value+=ch;}if(quoted)throw Error('Unclosed CSV quote');if(row.length||value){row.push(value);rows.push(row);}return rows;}
 
 const app=document.querySelector<HTMLDivElement>('#app')!;
-app.innerHTML=`<aside class="sidebar"><div class="logo"><div class="logo-mark">K</div><div><b>Koffice</b><small>COMMUNITY ALPHA</small></div></div><span class="heading">WORKSPACE</span><button class="nav" id="nav-writer">▤ &nbsp; Writer <span>Text</span></button><button class="nav" id="nav-sheets">▦ &nbsp; Sheets <span>Data</span></button><button class="nav" id="nav-slides">▣ &nbsp; Slides <span>Present</span></button><button class="nav" id="nav-base">▥ &nbsp; Base <span>Database</span></button><div class="side-foot"><div class="dot"></div><span>Running locally<br><small>${source}</small></span></div></aside><main class="main"><header class="header"><div><div class="breadcrumb">Your workspace <span> / </span> <span id="kind">Writer</span></div><div class="document-name" id="docname">Untitled</div></div><div class="version">v0.14 · OPEN SOURCE</div></header><div class="toolbar"><button id="new">＋ New</button><button id="open">↥ Open</button><button id="save">↧ Save</button><button id="saveas">Save as</button><div class="sep"></div><button id="find">Find / Replace</button><button id="fusion-center">Fusion links</button><button id="automation">Automation API</button><button id="export">Export</button><button id="print">Print / PDF</button><div class="spacer"></div><button id="toggle-compact" title="Show or hide sidebar" aria-label="Toggle sidebar">☰</button><button id="zoom-out" aria-label="Zoom out">−</button><span id="zoom-value" aria-live="polite">100%</span><button id="zoom-in" aria-label="Zoom in">＋</button><span class="status" id="status">Ready</span></div><section class="canvas" id="canvas"></section><footer><span id="details">Koffice</span><span id="location">Unsaved workspace</span><span id="rev">Revision 0</span></footer><div id="notice" role="status"></div></main>`;
+app.innerHTML=`<aside class="sidebar"><div class="logo"><div class="logo-mark">K</div><div><b>Koffice</b><small>COMMUNITY ALPHA</small></div></div><span class="heading">WORKSPACE</span><button class="nav" id="nav-writer">▤ &nbsp; Writer <span>Text</span></button><button class="nav" id="nav-sheets">▦ &nbsp; Sheets <span>Data</span></button><button class="nav" id="nav-slides">▣ &nbsp; Slides <span>Present</span></button><button class="nav" id="nav-base">▥ &nbsp; Base <span>Database</span></button><div class="side-foot"><div class="dot"></div><span>Running locally<br><small>${source}</small></span></div></aside><main class="main"><header class="header"><div><div class="breadcrumb">Your workspace <span> / </span> <span id="kind">Writer</span></div><div class="document-name" id="docname">Untitled</div></div><div class="version">v0.15 · OPEN SOURCE</div></header><div class="toolbar"><button id="new">＋ New</button><button id="open">↥ Open</button><button id="save">↧ Save</button><button id="saveas">Save as</button><div class="sep"></div><button id="find">Find / Replace</button><button id="fusion-center">Fusion links</button><button id="automation">Automation API</button><button id="export">Export</button><button id="print">Print / PDF</button><div class="spacer"></div><button id="toggle-compact" title="Show or hide sidebar" aria-label="Toggle sidebar">☰</button><button id="zoom-out" aria-label="Zoom out">−</button><span id="zoom-value" aria-live="polite">100%</span><button id="zoom-in" aria-label="Zoom in">＋</button><span class="status" id="status">Ready</span></div><section class="canvas" id="canvas"></section><footer><span id="details">Koffice</span><span id="location">Unsaved workspace</span><span id="rev">Revision 0</span></footer><div id="notice" role="status"></div></main>`;
 const fusion=new FusionUI(
   ()=>doc?.embedded_objects??[],
   updatesCallback,
@@ -160,6 +161,12 @@ const base = new BaseUI(message,()=>refresh(),async(table)=>{
   deck=await invoke<Deck>('base_snapshot_to_slides',{table,expectedRevision:deck.revision});
   slideIndex=deck.slides.length-1;active='slides';dirty=true;refresh();
   message('Static Base table snapshot appended to Slides. Save the presentation to retain it.');
+},async(table)=>{
+  if(!base.path)throw Error('Open a database first');
+  if(!window.confirm('Create a linked slide using this source database?\n'+base.path+'\nThe slide will store a complete snapshot. Future reads require confirmation.'))return;
+  deck=await invoke<Deck>('base_link_to_slides',{table,expectedRevision:deck.revision});
+  slideIndex=deck.slides.length-1;active='slides';syncDirty();refresh();
+  message('Base-linked slide inserted. Save Slides to persist the link and snapshot.');
 });
 function refresh(){document.querySelectorAll('.nav').forEach(x=>x.classList.remove('selected'));$(`nav-${active}`).classList.add('selected');$('kind').textContent=labels[active];$('docname').textContent=active==='base'?(base.path?.split(/[\\/]/).pop()??'Database'):title();$('rev').textContent=`Revision ${revision()}`;$('location').textContent=active==='base'?(base.path??'No database selected'):(paths[active]??'No file selected');$('status').textContent=active==='base'?'✓ SQLite · committed automatically':((dirty||saved[active]!==revision())?'● Unsaved changes':'✓ Saved locally');renderCanvas();}
 function syncDirty(){dirty=true;$('status').textContent='● Unsaved changes';}
@@ -224,7 +231,7 @@ function renderCanvas(){
    ($('csv-picker') as HTMLInputElement).onchange=()=>void run(async()=>{const file=($('csv-picker') as HTMLInputElement).files?.[0];if(!file)return;if(file.size>5*1024*1024)throw Error('CSV exceeds 5 MiB limit');const records=parseCsv((await file.text()).replace(/^\uFEFF/,''));const updates:Record<string,string>={};records.forEach((row,r)=>row.forEach((value,c)=>{if(r<10000&&c<702)updates[toAddress(r+1,c+1)]=value;}));book=await invoke('workbook_put_batch',{expectedRevision:book.revision,sheet:sheetIndex,updates});syncDirty();refresh();message(`Imported ${Object.keys(updates).length} CSV cells`);});
    $('add-sheet').onclick=()=>void run(async()=>{const name=window.prompt('Name of new sheet',`Sheet ${book.sheets.length+1}`);if(!name)return;book=await invoke('workbook_add_sheet',{expectedRevision:book.revision,name});sheetIndex=book.sheets.length-1;syncDirty();refresh();});
  }else{
-   const item=deck.slides[slideIndex];$('canvas').innerHTML=`<div class="slides-area"><div class="slide-list"><div class="slides-title">SLIDES <button id="add-slide">＋</button></div>${deck.slides.map((s,i)=>`<button class="slide-thumb ${i===slideIndex?'current':''}" data-slide="${i}"><span>${i+1}</span><strong>${escapeHtml(s.title||'Untitled slide')}</strong></button>`).join('')}</div><div class="slide-edit"><div class="slide-tools"><span>Slide ${slideIndex+1} of ${deck.slides.length}</span><button id="slide-up">↑</button><button id="slide-down">↓</button><button id="duplicate-slide">Duplicate</button><button id="delete-slide">Delete slide</button><button id="presentation">Present</button></div><div class="slide-screen"><input id="slide-title" placeholder="Slide title" value="${escapeHtml(item.title)}" aria-label="Slide title"><textarea id="slide-body" aria-label="Slide content" placeholder="Your story begins here..."></textarea></div><label class="notes-label">Speaker notes<textarea id="slide-notes" placeholder="Private notes for the presenter..."></textarea></label></div></div>`;
+   const item=deck.slides[slideIndex];$('canvas').innerHTML=`<div class="slides-area"><div class="slide-list"><div class="slides-title">SLIDES <button id="add-slide">＋</button></div>${deck.slides.map((s,i)=>`<button class="slide-thumb ${i===slideIndex?'current':''}" data-slide="${i}"><span>${i+1}</span><strong>${escapeHtml(s.title||'Untitled slide')}</strong></button>`).join('')}</div><div class="slide-edit"><div class="slide-tools"><span>Slide ${slideIndex+1} of ${deck.slides.length}</span><button id="slide-up">↑</button><button id="slide-down">↓</button><button id="duplicate-slide">Duplicate</button><button id="delete-slide">Delete slide</button><button id="presentation">Present</button>${item.base_source?'<button id="slide-check-base">Check Base</button><button id="slide-refresh-base">Refresh Base</button><button id="slide-detach-base">Detach Base</button>':''}</div><div class="slide-screen"><input id="slide-title" placeholder="Slide title" value="${escapeHtml(item.title)}" aria-label="Slide title"><textarea id="slide-body" aria-label="Slide content" placeholder="Your story begins here..."></textarea></div><label class="notes-label">Speaker notes<textarea id="slide-notes" placeholder="Private notes for the presenter..."></textarea></label></div></div>`;
    ($('slide-body') as HTMLTextAreaElement).value=item.body;($('slide-notes') as HTMLTextAreaElement).value=item.notes;
    $('details').textContent=`${deck.slides.length} slides · Presentation editor`;
    let timer:ReturnType<typeof setTimeout>|undefined;
@@ -234,11 +241,37 @@ function renderCanvas(){
    $('duplicate-slide').onclick=()=>void run(async()=>{await commitSlide();deck=await invoke('deck_duplicate',{expectedRevision:deck.revision,index:slideIndex});slideIndex++;syncDirty();refresh();});
    for(const [button,direction] of [['slide-up',-1],['slide-down',1]] as const){$(button).onclick=()=>void run(async()=>{await commitSlide();const next=slideIndex+direction;if(next<0||next>=deck.slides.length)return;deck=await invoke('deck_move',{expectedRevision:deck.revision,from:slideIndex,to:next});slideIndex=next;syncDirty();refresh();});}
    $('delete-slide').onclick=()=>void run(async()=>{if(!window.confirm('Delete this slide?'))return;deck=await invoke('deck_delete',{expectedRevision:deck.revision,index:slideIndex});slideIndex=Math.min(slideIndex,deck.slides.length-1);syncDirty();refresh();});
+   if(item.base_source){
+     $('slide-check-base').onclick=()=>void run(async()=>{
+       await commitSlide();
+       const link=deck.slides[slideIndex]?.base_source;
+       if(!link)return;
+       if(!window.confirm('Read linked Base source?\n'+link.database_path+'\nTable: '+link.table))return;
+       const status=await invoke<{state:string;detail:string;differing_fields:string[]}>('slides_base_link_status',{index:slideIndex});
+       message('Base link '+status.state+': '+status.detail+(status.differing_fields.length?' Fields: '+status.differing_fields.join(', '):''));
+     });
+     $('slide-refresh-base').onclick=()=>void run(async()=>{
+       await commitSlide();
+       const link=deck.slides[slideIndex]?.base_source;
+       if(!link)return;
+       if(!window.confirm('Refresh this slide from the linked database?\n'+link.database_path+'\nTable: '+link.table+'\nLocal slide edits will block refresh.'))return;
+       const status=await invoke<{state:string;detail:string}>('slides_base_link_status',{index:slideIndex});
+       if(status.state!=='changed'){message('Base link '+status.state+': '+status.detail);return;}
+       deck=await invoke<Deck>('slides_base_link_refresh',{index:slideIndex,expectedRevision:deck.revision});
+       syncDirty();refresh();message('Slide updated from Base. Save presentation to persist.');
+     });
+     $('slide-detach-base').onclick=()=>void run(async()=>{
+       await commitSlide();
+       if(!window.confirm('Detach this Base link? Current slide contents remain unchanged.'))return;
+       deck=await invoke<Deck>('slides_base_link_detach',{index:slideIndex,expectedRevision:deck.revision});
+       syncDirty();refresh();message('Base link detached; slide data preserved.');
+     });
+   }
    $('presentation').onclick=()=>{const data=deck.slides.map(s=>`<section style="page-break-after:always;display:grid;place-content:center;width:100vw;height:100vh;background:#202632;color:white;padding:7vw;box-sizing:border-box;font:28px sans-serif"><h1 style="font-size:2em">${escapeHtml(s.title)}</h1><p style="white-space:pre-wrap">${escapeHtml(s.body)}</p></section>`).join('');const w=window.open('','_blank');if(!w){message('Allow popups to present');return;}w.document.write(`<html><head><title>${escapeHtml(deck.title)}</title></head><body style="margin:0">${data}</body></html>`);w.document.close();};
  }
 }
 async function commitWriter(){if(active!=='writer')return;const text=($('text') as HTMLTextAreaElement)?.value;if(text===undefined||text===doc.text)return;doc=await invoke('edit_document',{expectedRevision:doc.revision,edit:{type:'replace_all',text}});syncDirty();$('rev').textContent=`Revision ${doc.revision}`;$('details').textContent=`${text.trim()?text.trim().split(/\s+/u).length:0} words · ${[...text].length} characters`;}
-async function commitSlide(){if(active!=='slides')return;const title=($('slide-title') as HTMLInputElement)?.value,body=($('slide-body') as HTMLTextAreaElement)?.value,notes=($('slide-notes') as HTMLTextAreaElement)?.value;if(title===undefined)return;const slide={title,body,notes};if(JSON.stringify(slide)===JSON.stringify(deck.slides[slideIndex]))return;deck=await invoke('deck_update',{expectedRevision:deck.revision,index:slideIndex,slide});syncDirty();$('rev').textContent=`Revision ${deck.revision}`;}
+async function commitSlide(){if(active!=='slides')return;const title=($('slide-title') as HTMLInputElement)?.value,body=($('slide-body') as HTMLTextAreaElement)?.value,notes=($('slide-notes') as HTMLTextAreaElement)?.value;if(title===undefined)return;const original=deck.slides[slideIndex];const slide:Slide={title,body,notes,...(original.base_source?{base_source:original.base_source}:{})};if(JSON.stringify(slide)===JSON.stringify(original))return;deck=await invoke('deck_update',{expectedRevision:deck.revision,index:slideIndex,slide});syncDirty();$('rev').textContent=`Revision ${deck.revision}`;}
 async function flush(){if(active==='base')return;if(active==='writer')await commitWriter();if(active==='slides')await commitSlide();}
 const commands:Record<Kind,{create:string;open:string;save:string}>={writer:{create:'new_document',open:'open_document',save:'save_document'},sheets:{create:'workbook_new',open:'workbook_open',save:'workbook_save'},slides:{create:'deck_new',open:'deck_open',save:'deck_save'},base:{create:'base_create',open:'base_open',save:'base_path'}};
 async function create(){if(active==='base'){await base.create();return;}if(!confirmDiscard())return;const next=await invoke(commands[active].create);assign(next);paths[active]=null;saved[active]=revision();dirty=false;sheetIndex=slideIndex=0;refresh();}

@@ -31,7 +31,28 @@ pub struct Deck {
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
-pub struct Slide { pub title: String, pub body: String, pub notes: String }
+pub struct SlideContent { pub title: String, pub body: String, pub notes: String }
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct BaseSlideSource {
+    pub database_path: String,
+    pub table: String,
+    pub clean: SlideContent,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct Slide {
+    pub title: String,
+    pub body: String,
+    pub notes: String,
+    #[serde(default,skip_serializing_if="Option::is_none")]
+    pub base_source: Option<BaseSlideSource>,
+}
+impl Slide {
+    pub fn content(&self)->SlideContent{
+        SlideContent{title:self.title.clone(),body:self.body.clone(),notes:self.notes.clone()}
+    }
+}
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
 pub struct CellMatch { pub sheet: usize, pub address: String, pub value: String }
@@ -230,21 +251,41 @@ fn parse_address(a: &str) -> Result<(usize,usize),String> {
 fn format_address(row:usize, mut col:usize)->String { let mut s=String::new(); while col>0 { col-=1; s.insert(0, (b'A'+(col%26) as u8) as char); col/=26; } format!("{s}{row}") }
 
 impl Deck {
-    pub fn blank() -> Self { Self { format: "koffice.slides.v1".into(), title: "Untitled presentation".into(), revision: 0, slides: vec![Slide { title: "Title slide".into(), body: "Click to add content".into(), notes: String::new() }] } }
+    pub fn blank() -> Self { Self { format: "koffice.slides.v1".into(), title: "Untitled presentation".into(), revision: 0, slides: vec![Slide { title: "Title slide".into(), body: "Click to add content".into(), notes: String::new(), base_source: None }] } }
     pub fn validate(&self) -> Result<(),String> {
         if self.format != "koffice.slides.v1" { return Err("Unsupported presentation format".into()); }
         check_title(&self.title)?;
         if self.slides.is_empty() || self.slides.len()>MAX_SLIDES { return Err("Presentation requires 1–500 slides".into()); }
-        for s in &self.slides { if s.title.len()>MAX_INPUT || s.body.len()>MAX_INPUT || s.notes.len()>MAX_INPUT { return Err("Slide text too long".into()); } }
+        for s in &self.slides {
+            if s.title.len()>MAX_INPUT || s.body.len()>MAX_INPUT || s.notes.len()>MAX_INPUT { return Err("Slide text too long".into()); }
+            if let Some(link)=&s.base_source {
+                if link.database_path.is_empty() || link.database_path.len()>4096 || !link.database_path.ends_with(".kdb")
+                    || link.table.is_empty() || link.table.len()>64 ||
+                    !link.table.bytes().next().unwrap().is_ascii_alphabetic() ||
+                    !link.table.bytes().all(|c|c.is_ascii_alphanumeric()||c==b'_') {
+                    return Err("Invalid linked Base source".into());
+                }
+                let clean=&link.clean;
+                if clean.title.len()>MAX_INPUT || clean.body.len()>MAX_INPUT || clean.notes.len()>MAX_INPUT {
+                    return Err("Linked Base snapshot exceeds slide limits".into());
+                }
+            }
+        }
         Ok(())
     }
     pub fn add(&mut self, expected:u64) -> Result<(),String> {
         check_revision(self.revision, expected)?; let mut copy=self.clone();
-        copy.slides.push(Slide {title:format!("Slide {}",copy.slides.len()+1), body:String::new(), notes:String::new()});
+        copy.slides.push(Slide {title:format!("Slide {}",copy.slides.len()+1), body:String::new(), notes:String::new(), base_source: None});
         copy.revision=copy.revision.checked_add(1).ok_or("Revision overflow")?; copy.validate()?; *self=copy; Ok(())
     }
     pub fn update(&mut self, expected:u64, index:usize, slide:Slide) -> Result<(),String> {
-        check_revision(self.revision, expected)?; let mut copy=self.clone(); *copy.slides.get_mut(index).ok_or("Slide not found")?=slide;
+        check_revision(self.revision, expected)?; let mut copy=self.clone();
+        let old=copy.slides.get(index).ok_or("Slide not found")?;
+        // Preserve source metadata during ordinary text editing. Only a dedicated
+        // detach command may remove the link. Never trust metadata from UI payload.
+        let mut replacement=slide;
+        replacement.base_source=old.base_source.clone();
+        copy.slides[index]=replacement;
         copy.revision=copy.revision.checked_add(1).ok_or("Revision overflow")?; copy.validate()?; *self=copy; Ok(())
     }
     pub fn duplicate(&mut self, expected:u64, index:usize) -> Result<(),String> {

@@ -1,3 +1,5 @@
+> **Fusion v0.15:** Base can now add manually refreshed **file-backed Slides**. Links survive restarting and moving/duplicating slides, protect hand-edited slides, and save a readable offline snapshot inside `.kslide`. [Base ↔ Slides guide](docs/BASE-SLIDES-LINKS.md). Not automatic synchronization.
+
 > **Fusion v0.14:** Link Center inventories all embedded Writer objects without reading linked files. Selected file-backed links can be scanned, differences previewed, and refreshed in a single atomic batch with source revalidation. See [Fusion Link Center](docs/FUSION-CENTER.md). No automatic sync.
 
 > **Fusion v0.13:** persist source-file links to .ksheet workbooks across Koffice restarts; explicit Check/Refresh/Relink/Detach with source validation and local-edit protection. Reading a linked path requires an explicit user action, never happens on .kdoc open. [Guide](docs/FUSION-FILES.md).
