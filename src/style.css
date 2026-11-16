@@ -174,3 +174,38 @@ body[data-app-mode]:not([data-app-mode="suite"]) .nav{display:none}
  .desktop-launcher-header h2{font-size:21px}
 }
 @media(prefers-reduced-motion:reduce){.desktop-app-tile{transition:none}}
+
+/* Koffice 0.19 — first true rich-text Writer editing surface. */
+.writer-ribbon{gap:8px;min-height:63px;align-content:center}
+.writer-ribbon-group{display:flex;align-items:center;gap:4px;border-right:1px solid #3d4447;padding:0 11px 0 0;margin-right:2px;flex-wrap:wrap}
+.writer-ribbon-group button{min-width:32px;min-height:32px;padding:6px 10px}
+.writer-ribbon-group button:focus-visible{outline:2px solid #95d4ad;outline-offset:1px}
+.writer-rich-editor{width:100%;min-height:675px;border:0;outline:0;background:transparent;color:#22272d;font-size:16px;line-height:1.65;overflow-wrap:anywhere;white-space:normal;caret-color:#225c48;user-select:text}
+.writer-rich-editor:empty:before{content:attr(data-placeholder);color:#9da2aa;pointer-events:none}
+.writer-rich-editor p{margin:0 0 .7em;min-height:1em}
+.writer-rich-editor h1{font-size:2em;font-weight:750;line-height:1.25;margin:.55em 0 .45em}
+.writer-rich-editor h2{font-size:1.5em;font-weight:700;line-height:1.3;margin:.65em 0 .5em}
+.writer-rich-editor h3{font-size:1.2em;margin:.8em 0 .5em}
+.writer-rich-editor ul,.writer-rich-editor ol{padding-left:1.65em;margin:.5em 0 1em}
+.writer-rich-editor li{padding-left:.15em;margin:.25em 0}
+.writer-rich-editor blockquote{border-left:3px solid #92b5a3;margin:1em 0;padding:.4em 1.2em;color:#49594e;background:#eff5f0}
+.writer-rich-editor hr{border:0;border-top:1px solid #bcc3bd;margin:1.3em 0}
+.writer-rich-editor table{width:100%;border-collapse:collapse;margin:.8em 0 1.2em;table-layout:fixed}
+.writer-rich-editor th,.writer-rich-editor td{border:1px solid #abb4ae;padding:8px 10px;vertical-align:top;overflow-wrap:anywhere}
+.writer-rich-editor th{background:#e7eee9}
+.writer-rich-editor code{font:13px ui-monospace,monospace;background:#e7eae8;padding:2px 3px}
+.writer-rich-editor ::selection{background:#b0e2c2;color:#172f24}
+.writer-rich-editor:focus-visible{outline:0}
+.writer-rich-editor > :first-child{margin-top:0}
+.writer-print-body{white-space:normal;overflow-wrap:anywhere}
+@media print{
+ .writer-rich-editor{min-height:0}
+ .paper{box-shadow:none!important;margin:0!important;padding:0!important}
+ .writer-ribbon{display:none!important}
+}
+@media(max-width:650px){
+ .writer-ribbon{padding:7px;gap:4px}
+ .writer-ribbon-group{gap:2px;padding-right:5px}
+ .writer-ribbon-group button{font-size:11px;padding:4px 6px}
+ .writer-rich-editor{min-height:450px}
+}

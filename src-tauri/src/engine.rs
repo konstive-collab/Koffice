@@ -15,6 +15,8 @@ pub struct Document {
     pub format: String,
     pub title: String,
     pub text: String,
+    #[serde(default,skip_serializing_if="Option::is_none")]
+    pub rich_html: Option<String>,
     pub revision: u64,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub embedded_objects: Vec<EmbeddedObject>,
@@ -24,18 +26,31 @@ pub struct Document {
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Edit {
     ReplaceAll { text: String },
+    ReplaceRich { text: String, html: String },
     Insert { at: usize, text: String },
     Delete { start: usize, end: usize },
 }
 
 impl Document {
     pub fn blank() -> Self {
-        Self { format: FORMAT.into(), title: "Untitled".into(), text: String::new(), revision: 0, embedded_objects: vec![] }
+        Self { format: FORMAT.into(), title: "Untitled".into(), text: String::new(), rich_html: None, revision: 0, embedded_objects: vec![] }
     }
     pub fn validate(&self) -> Result<(), String> {
         if self.format != FORMAT { return Err("Unsupported Koffice document format".into()); }
         if self.title.trim().is_empty() || self.title.chars().count() > 200 { return Err("Document title must contain 1–200 characters".into()); }
         if self.text.chars().count() > MAX_CHARS { return Err("Document exceeds the maximum character limit".into()); }
+        if let Some(html)=&self.rich_html {
+            if html.len()>4_000_000 { return Err("Rich document markup exceeds 4 MiB".into()); }
+            // Rich content is a constrained HTML fragment. The frontend always
+            // sanitizes again before rendering, including when opening untrusted files.
+            // Refuse obvious active content even if the file bypasses our UI.
+            let lower=html.to_ascii_lowercase();
+            for forbidden in ["<script","<iframe","<object","<embed","<svg","<math","<style",
+                "javascript:", "vbscript:", "data:", "onerror=", "onload=", "onclick=",
+                "<form","<input","<textarea","<video","<audio","<link","<meta","<base"] {
+                if lower.contains(forbidden) {return Err("Unsafe rich document markup".into());}
+            }
+        }
         fusion::validate_objects(&self.embedded_objects)?;
         Ok(())
     }
@@ -44,16 +59,22 @@ impl Document {
         if self.revision != expected_revision { return Err("Revision conflict: reload the document before editing".into()); }
         let mut candidate = self.clone();
         match edit {
-            Edit::ReplaceAll { text } => candidate.text = text,
+            Edit::ReplaceAll { text } => {candidate.text=text;candidate.rich_html=None;},
+            Edit::ReplaceRich { text, html } => {
+                candidate.text=text;
+                candidate.rich_html=Some(html);
+            },
             Edit::Insert { at, text } => {
                 let pos = char_byte_offset(&candidate.text, at)?;
                 candidate.text.insert_str(pos, &text);
+                candidate.rich_html=None;
             }
             Edit::Delete { start, end } => {
                 if end < start { return Err("Invalid deletion range".into()); }
                 let begin = char_byte_offset(&candidate.text, start)?;
                 let finish = char_byte_offset(&candidate.text, end)?;
                 candidate.text.replace_range(begin..finish, "");
+                candidate.rich_html=None;
             }
         }
         candidate.revision = candidate.revision.checked_add(1).ok_or("Revision overflow")?;
@@ -161,6 +182,28 @@ pub fn save_bytes(path: &Path, serialized: &[u8]) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test] fn formatted_text_roundtrip_and_legacy_compatibility() {
+        let mut d=Document::blank();
+        d.apply(0,Edit::ReplaceRich{text:"Heading\nBold words".into(),
+            html:"<h1>Heading</h1><p><strong>Bold</strong> words</p>".into()}).unwrap();
+        assert!(d.rich_html.as_ref().unwrap().contains("<strong>"));
+        let bytes=serde_json::to_vec(&d).unwrap();
+        let restored:Document=serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(restored,d);
+        let old=r#"{"format":"koffice.writer.v1","title":"Old","text":"Hello","revision":0}"#;
+        let legacy:Document=serde_json::from_str(old).unwrap();
+        assert_eq!(legacy.rich_html,None);
+        legacy.validate().unwrap();
+        d.apply(1,Edit::Insert{at:0,text:"New ".into()}).unwrap();
+        assert_eq!(d.rich_html,None);
+    }
+    #[test] fn markup_validation_rejects_active_content_without_mutation() {
+        let mut d=Document::blank();let before=d.clone();
+        assert!(d.apply(0,Edit::ReplaceRich{text:"Bad".into(),html:"<img src=x onerror=alert(1)>".into()}).is_err());
+        assert!(d.apply(0,Edit::ReplaceRich{text:"Bad".into(),html:"<script>alert(1)</script>".into()}).is_err());
+        assert_eq!(d,before);
+    }
     #[test] fn unicode_edit_offsets() {
         let mut d = Document::blank();
         d.apply(0, Edit::ReplaceAll { text: "A☕Я".into() }).unwrap();
