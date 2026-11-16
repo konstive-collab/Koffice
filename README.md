@@ -1,3 +1,5 @@
+> **Koffice 0.21 — paginated Writer preview:** a read-only, measured page view with header/footer, A4/Letter/Legal, zoom and page navigation. Unsaved text and selection remain in the original editor. Oversize blocks are identified rather than truncated from the document. [Read more](docs/WRITER-PAGINATION.md).
+
 > **Koffice 0.20 — Writer page setup:** persistent A4/Letter/Legal page sizes, orientation, margins, header/footer text and explicit manual page breaks. Printing and HTML export now receive page CSS. [Documentation](docs/WRITER-PAGES.md). Automatic pagination and repeating per-page headers remain unimplemented.
 
 > **Koffice 0.19 — Writer Rich Text:** the Writer editing surface now supports actual headings, bold/italic/underline, lists, blockquotes, basic editable tables and local Undo/Redo, saved inside native `.kdoc`. The plain-text field remains for legacy automation, and untrusted HTML is sanitized. [Guide](docs/WRITER-RICH.md). Full page layout and DOCX compatibility are still future work.
