@@ -9,7 +9,7 @@ Koffice Slides can now contain a **manually refreshed slide linked to a local Ba
 3. Koffice appends a linked slide to the current presentation. Save the presentation as `.kslide`.
 4. Select the linked slide in Slides. **Check Base** shows the saved source path and asks for permission to read it. The status is **current**, **changed**, **conflict**, or **disconnected**.
 5. **Refresh Base** is a separate action with the same source confirmation. If the database snapshot has changed and the slide has not been edited locally, Koffice updates that slide. Other slides remain intact. Save Slides afterward.
-6. **Detach Base** removes the link but preserves the current slide title, body, and notes.
+6. **Relink Base** uses a native file picker to reconnect a moved database. It requires the original table name and refuses to overwrite local edits. **Detach Base** removes the link but preserves the current slide title, body, and notes.
 
 The source path is canonical and absolute, so moving a presentation to another machine does not preserve the external connection automatically. Opening a `.kslide` does not follow database paths, connect to a database, or check for changes.
 
@@ -25,4 +25,4 @@ The source path is canonical and absolute, so moving a presentation to another m
 
 ## Limitations
 
-No automatic refresh, reconnect dialog for moved databases, dependency-graph propagation, multi-user synchronization, merge conflicts, embedded Base UI, data charts or full XLSX/PPTX interoperability. Koffice remains experimental alpha software, so keep backups of important files.
+No automatic refresh, dependency-graph propagation, multi-user synchronization, merge conflicts, embedded Base UI, data charts or full XLSX/PPTX interoperability. Koffice remains experimental alpha software, so keep backups of important files.

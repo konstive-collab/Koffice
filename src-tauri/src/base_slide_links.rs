@@ -97,6 +97,28 @@ pub fn refresh(deck:&mut Deck,expected_revision:u64,index:usize)->Result<bool,St
     *deck=next;
     Ok(true)
 }
+/// Reconnect a moved .kdb using the explicit native file picker in the UI.
+/// The table name is retained; local edits are never overwritten.
+pub fn reconnect(deck:&mut Deck,expected_revision:u64,index:usize,new_path:&str)->Result<(),String>{
+    if deck.revision!=expected_revision{return Err("Presentation revision conflict".into());}
+    let mut next=deck.clone();
+    let slide=next.slides.get_mut(index).ok_or("Slide not found")?;
+    let original=slide.base_source.clone().ok_or("Slide has no linked Base source")?;
+    if slide.content()!=original.clean {
+        return Err("Slide has local edits; detach to preserve them before reconnecting".into());
+    }
+    let canonical=source_path(new_path)?;
+    let updated=snapshot(&canonical,&original.table)?;
+    let clean=updated.content();
+    slide.title=updated.title;
+    slide.body=updated.body;
+    slide.notes=updated.notes;
+    slide.base_source=Some(BaseSlideSource{database_path:canonical,table:original.table,clean});
+    next.revision=next.revision.checked_add(1).ok_or("Presentation revision overflow")?;
+    next.validate()?;
+    *deck=next;Ok(())
+}
+
 pub fn detach(deck:&mut Deck,expected_revision:u64,index:usize)->Result<(),String>{
     if deck.revision!=expected_revision {return Err("Presentation revision conflict".into());}
     let mut next=deck.clone();
@@ -182,6 +204,21 @@ mod tests{
         assert_eq!(inspect(&deck,1).unwrap().state,"disconnected");
         assert!(refresh(&mut deck,1,1).is_err());
         assert_eq!(deck,before);
+    }
+
+    #[test]fn moved_database_can_be_relinked_after_explicit_selection(){
+        let db=TempDb::create();db.insert(1);
+        let replacement=TempDb::create();replacement.insert(99);
+        let mut deck=Deck::blank();create(&mut deck,0,&db.0,"Sales").unwrap();
+        reconnect(&mut deck,1,1,&replacement.0).unwrap();
+        assert!(deck.slides[1].body.contains("99"));
+        assert_eq!(deck.slides[1].base_source.as_ref().unwrap().database_path,source_path(&replacement.0).unwrap());
+        assert_eq!(inspect(&deck,1).unwrap().state,"current");
+        let mut local=deck.slides[1].clone();local.body.push_str(" handwritten");
+        deck.update(2,1,local).unwrap();
+        let unchanged=deck.clone();
+        assert!(reconnect(&mut deck,3,1,&db.0).is_err());
+        assert_eq!(deck,unchanged);
     }
     #[test]fn legacy_slide_json_remains_loadable(){
         let legacy=r#"{"format":"koffice.slides.v1","title":"Old","revision":0,"slides":[{"title":"One","body":"Hello","notes":""}]}"#;

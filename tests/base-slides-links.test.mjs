@@ -25,17 +25,19 @@ test('native link uses bounded Base snapshot, read-on-confirm and rejects confli
   assert.match(native,/stale_revision_and_missing_source_do_not_mutate_presentation/);
 });
 test('commands are registered and exposed through UI',()=>{
-  for(const name of ['base_link_to_slides','slides_base_link_status','slides_base_link_refresh','slides_base_link_detach']){
+  for(const name of ['base_link_to_slides','slides_base_link_status','slides_base_link_refresh','slides_base_link_reconnect','slides_base_link_detach']){
     assert.ok(lib.includes('fn '+name+'('),name);
     assert.ok(main.includes(name),name);
   }
   assert.match(base,/id="base-link-slides"/);
   assert.match(main,/Check Base/);
   assert.match(main,/Refresh Base/);
+  assert.match(main,/Relink Base/);
   assert.match(main,/Detach Base/);
 });
 test('UI explicitly confirms stored path before reading database',()=>{
   assert.match(main,/window.confirm\('Read linked Base source/);
   assert.match(main,/window.confirm\('Refresh this slide from the linked database/);
   assert.match(main,/database_path/);
+  assert.match(native,/moved_database_can_be_relinked_after_explicit_selection/);
 });

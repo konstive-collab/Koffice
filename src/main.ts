@@ -231,7 +231,7 @@ function renderCanvas(){
    ($('csv-picker') as HTMLInputElement).onchange=()=>void run(async()=>{const file=($('csv-picker') as HTMLInputElement).files?.[0];if(!file)return;if(file.size>5*1024*1024)throw Error('CSV exceeds 5 MiB limit');const records=parseCsv((await file.text()).replace(/^\uFEFF/,''));const updates:Record<string,string>={};records.forEach((row,r)=>row.forEach((value,c)=>{if(r<10000&&c<702)updates[toAddress(r+1,c+1)]=value;}));book=await invoke('workbook_put_batch',{expectedRevision:book.revision,sheet:sheetIndex,updates});syncDirty();refresh();message(`Imported ${Object.keys(updates).length} CSV cells`);});
    $('add-sheet').onclick=()=>void run(async()=>{const name=window.prompt('Name of new sheet',`Sheet ${book.sheets.length+1}`);if(!name)return;book=await invoke('workbook_add_sheet',{expectedRevision:book.revision,name});sheetIndex=book.sheets.length-1;syncDirty();refresh();});
  }else{
-   const item=deck.slides[slideIndex];$('canvas').innerHTML=`<div class="slides-area"><div class="slide-list"><div class="slides-title">SLIDES <button id="add-slide">＋</button></div>${deck.slides.map((s,i)=>`<button class="slide-thumb ${i===slideIndex?'current':''}" data-slide="${i}"><span>${i+1}</span><strong>${escapeHtml(s.title||'Untitled slide')}</strong></button>`).join('')}</div><div class="slide-edit"><div class="slide-tools"><span>Slide ${slideIndex+1} of ${deck.slides.length}</span><button id="slide-up">↑</button><button id="slide-down">↓</button><button id="duplicate-slide">Duplicate</button><button id="delete-slide">Delete slide</button><button id="presentation">Present</button>${item.base_source?'<button id="slide-check-base">Check Base</button><button id="slide-refresh-base">Refresh Base</button><button id="slide-detach-base">Detach Base</button>':''}</div><div class="slide-screen"><input id="slide-title" placeholder="Slide title" value="${escapeHtml(item.title)}" aria-label="Slide title"><textarea id="slide-body" aria-label="Slide content" placeholder="Your story begins here..."></textarea></div><label class="notes-label">Speaker notes<textarea id="slide-notes" placeholder="Private notes for the presenter..."></textarea></label></div></div>`;
+   const item=deck.slides[slideIndex];$('canvas').innerHTML=`<div class="slides-area"><div class="slide-list"><div class="slides-title">SLIDES <button id="add-slide">＋</button></div>${deck.slides.map((s,i)=>`<button class="slide-thumb ${i===slideIndex?'current':''}" data-slide="${i}"><span>${i+1}</span><strong>${escapeHtml(s.title||'Untitled slide')}</strong></button>`).join('')}</div><div class="slide-edit"><div class="slide-tools"><span>Slide ${slideIndex+1} of ${deck.slides.length}</span><button id="slide-up">↑</button><button id="slide-down">↓</button><button id="duplicate-slide">Duplicate</button><button id="delete-slide">Delete slide</button><button id="presentation">Present</button>${item.base_source?'<button id="slide-check-base">Check Base</button><button id="slide-refresh-base">Refresh Base</button><button id="slide-reconnect-base">Relink Base</button><button id="slide-detach-base">Detach Base</button>':''}</div><div class="slide-screen"><input id="slide-title" placeholder="Slide title" value="${escapeHtml(item.title)}" aria-label="Slide title"><textarea id="slide-body" aria-label="Slide content" placeholder="Your story begins here..."></textarea></div><label class="notes-label">Speaker notes<textarea id="slide-notes" placeholder="Private notes for the presenter..."></textarea></label></div></div>`;
    ($('slide-body') as HTMLTextAreaElement).value=item.body;($('slide-notes') as HTMLTextAreaElement).value=item.notes;
    $('details').textContent=`${deck.slides.length} slides · Presentation editor`;
    let timer:ReturnType<typeof setTimeout>|undefined;
@@ -259,6 +259,16 @@ function renderCanvas(){
        if(status.state!=='changed'){message('Base link '+status.state+': '+status.detail);return;}
        deck=await invoke<Deck>('slides_base_link_refresh',{index:slideIndex,expectedRevision:deck.revision});
        syncDirty();refresh();message('Slide updated from Base. Save presentation to persist.');
+     });
+     $('slide-reconnect-base').onclick=()=>void run(async()=>{
+       await commitSlide();
+       const link=deck.slides[slideIndex]?.base_source;
+       if(!link)return;
+       const selected=await open({multiple:false,filters:[{name:'Koffice Base database',extensions:['kdb']}]});
+       if(typeof selected!=='string')return;
+       if(!window.confirm('Reconnect this slide to table '+link.table+' in the selected database?\n'+selected+'\nLocal edits will prevent reconnect.'))return;
+       deck=await invoke<Deck>('slides_base_link_reconnect',{index:slideIndex,expectedRevision:deck.revision,path:selected});
+       syncDirty();refresh();message('Database source reconnected. Save Slides to persist.');
      });
      $('slide-detach-base').onclick=()=>void run(async()=>{
        await commitSlide();
