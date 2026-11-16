@@ -22,6 +22,7 @@ test('sheet search and numeric analysis wired end-to-end',()=>{
 test('Writer and Slides export offline HTML with escaped content',()=>{
   assert.match(ui,/doc\.title\+'.html'/);
   assert.match(ui,/deck\.title\+'.html'/);
-  assert.match(ui,/escapeHtml\(doc\.text\)/);
+  assert.match(ui,/sanitizeRichHtml\(doc\.rich_html\?\?plaintextRichHtml\(doc\.text\)\)/);
+  assert.match(readFileSync(new URL('../src/writer-rich.ts',import.meta.url),'utf8'),/sanitizeRichHtml/);
   assert.match(ui,/escapeHtml\(s\.body\)/);
 });

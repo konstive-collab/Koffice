@@ -40,7 +40,7 @@ test('single-product mode hides integrated navigation, Suite keeps it',()=>{
  assert.match(css,/prefers-reduced-motion/);
 });
 test('version and packaged app remain consistent',()=>{
- assert.equal(conf.version,'0.18.0');
+ assert.equal(conf.version,JSON.parse(readFileSync('package.json','utf8')).version.split('-')[0]);
  assert.equal(conf.bundle.active,true);
- assert.match(readFileSync('src-tauri/Cargo.toml','utf8'),/version = "0\.18\.0-alpha\.1"/);
+ assert.ok(readFileSync('src-tauri/Cargo.toml','utf8').includes('version = "'+JSON.parse(readFileSync('package.json','utf8')).version+'"'));
 });
