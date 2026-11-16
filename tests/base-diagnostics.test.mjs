@@ -18,5 +18,5 @@ test('database diagnostics, backup and report commands wired through Rust and Ta
 });
 test('MSI version compatible with numeric-only Windows packaging',()=>{
   assert.match(cfg.version,/^\d+\.\d+\.\d+$/);
-  assert.ok(cfg.bundle.targets.includes('msi'));
+  assert.ok(cfg.bundle.targets === 'all' || (Array.isArray(cfg.bundle.targets) && cfg.bundle.targets.includes('msi')));
 });
