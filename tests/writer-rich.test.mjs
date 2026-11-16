@@ -29,7 +29,8 @@ test('Writer has editable rich document and functional formatting actions',()=>{
  assert.match(style,/\.writer-rich-editor table/);
 });
 test('Print and HTML export use rich content and Fusion remains enabled',()=>{
- assert.match(ui,/<article>\$\{sanitizeRichHtml\(doc\.rich_html/);
+ assert.match(ui,/<article>\$\{pagePrintableHtml\(doc\.page\?\?DEFAULT_PAGE,sanitizeRichHtml\(doc\.rich_html/);
+ assert.match(ui,/cssPageStyle\(doc\.page\?\?DEFAULT_PAGE\)/);
  assert.match(ui,/class="writer-print-body"/);
  assert.match(ui,/\$\{fusion\.exportHtml\(\)\}/);
 });
