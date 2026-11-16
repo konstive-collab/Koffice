@@ -5,6 +5,7 @@ import {sanitizeRichHtml,plaintextRichHtml,readRichEditor,formatSelection,replac
 import {DEFAULT_PAGE,pageCss,cssPageStyle,escapePageText,pagePrintableHtml,openPageSetup,type WriterPage} from './writer-page';
 import {openWriterPages} from './writer-pagination';
 import {colName,parseCellAddress,parseRange,viewportAround,nextViewport,type GridViewport} from './sheets-workbench';
+import {matchingRows,selectedRect,isSelected,rangeAsTsv,type SheetFilter,type SheetSelection} from './sheets-interactions';
 import { BaseUI } from './base-ui';
 import { FusionUI, type EmbeddedSheet } from './fusion-ui';
 import { FusionManagerUI, type LinkNode, type PreviewReport } from './fusion-manager-ui';
@@ -20,6 +21,9 @@ type Slide={title:string;body:string;notes:string;base_source?:BaseSlideSource;e
 type Deck={format:string;title:string;revision:number;slides:Slide[]};
 let active:Kind='writer',doc:Doc,book:Book,deck:Deck,slideIndex=0,sheetIndex=0;
 let gridViewport:GridViewport={row:1,col:1,rows:40,cols:16};
+let sheetFilter:(SheetFilter&{sheet:number})|null=null;
+let sheetFilterOffset=0;
+let sheetSelection:SheetSelection|null=null;
 const paths:Record<Kind,string|null>={writer:null,sheets:null,slides:null,base:null};
 const saved:Record<Kind,number>={writer:0,sheets:0,slides:0,base:0};
 let dirty=false;
@@ -305,7 +309,9 @@ function renderCanvas(){
   });
  } else if(active==='sheets'){
    const b=book.sheets[sheetIndex];const cols=Array.from({length:gridViewport.cols},(_,i)=>colName(gridViewport.col+i));
-   $('canvas').innerHTML=`<div class="sheet-pane"><div class="sheet-head"><b>Spreadsheet</b><span>Grid: 10,000 rows × 702 columns</span><button id="sheet-go-to">Go to cell</button><button id="sheet-sort">Sort range</button><button id="sheet-fill">Fill series</button><button id="sheet-clear">Clear range</button><button id="import-csv">Import CSV</button><button id="find-cells">Find cells</button><button id="sheet-stats">Analyze</button><button id="rename-sheet">Rename</button><button id="delete-sheet">Delete</button><button id="add-sheet">＋ Add sheet</button><input id="csv-picker" type="file" accept=".csv,text/csv" hidden></div><div class="grid-scroll"><table class="grid"><thead><tr><th class="rowhead"></th>${cols.map(c=>`<th>${c}</th>`).join('')}</tr></thead><tbody>${Array.from({length:gridViewport.rows},(_,r)=>`<tr><th class="rowhead">${gridViewport.row+r}</th>${cols.map(c=>`<td><input spellcheck="false" data-address="${c}${gridViewport.row+r}" value="${escapeHtml(b.cells[`${c}${gridViewport.row+r}`]??'')}" aria-label="${c}${gridViewport.row+r}"></td>`).join('')}</tr>`).join('')}</tbody></table></div><div class="sheet-navigation"><button id="sheet-prev-cols">◀ Columns</button><button id="sheet-next-cols">Columns ▶</button><button id="sheet-prev-rows">▲ Rows</button><button id="sheet-next-rows">Rows ▼</button><span>${cols[0]}${gridViewport.row}–${cols[cols.length-1]}${Math.min(10000,gridViewport.row+gridViewport.rows-1)}</span></div><div class="tabs">${book.sheets.map((s,i)=>`<button data-tab="${i}" class="${i===sheetIndex?'current':''}">${escapeHtml(s.name)}</button>`).join('')}</div></div>`;
+   const filteredRows=sheetFilter?.sheet===sheetIndex?matchingRows(b.cells,sheetFilter):null;
+   const displayedRows=filteredRows?filteredRows.slice(sheetFilterOffset,sheetFilterOffset+gridViewport.rows):Array.from({length:gridViewport.rows},(_,i)=>gridViewport.row+i);
+   $('canvas').innerHTML=`<div class="sheet-pane"><div class="sheet-head"><b>Spreadsheet</b><span>Grid: 10,000 rows × 702 columns</span><button id="sheet-go-to">Go to cell</button><button id="sheet-sort">Sort range</button><button id="sheet-fill">Fill series</button><button id="sheet-clear">Clear range</button><button id="sheet-replace">Replace text</button><button id="sheet-filter">Filter rows</button><button id="sheet-filter-clear" title="Remove row filter">Show all</button><button id="sheet-copy">Copy range</button><button id="import-csv">Import CSV</button><button id="find-cells">Find cells</button><button id="sheet-stats">Analyze</button><button id="rename-sheet">Rename</button><button id="delete-sheet">Delete</button><button id="add-sheet">＋ Add sheet</button><input id="csv-picker" type="file" accept=".csv,text/csv" hidden></div><div class="grid-scroll"><table class="grid"><thead><tr><th class="rowhead"></th>${cols.map(c=>`<th>${c}</th>`).join('')}</tr></thead><tbody>${displayedRows.map(row=>`<tr><th class="rowhead">${row}</th>${cols.map(c=>`<td class="${isSelected(sheetSelection,sheetIndex,c+row)?'selected-cell':''}"><input spellcheck="false" data-address="${c}${row}" value="${escapeHtml(b.cells[`${c}${row}`]??'')}" aria-label="${c}${row}"></td>`).join('')}</tr>`).join('')}</tbody></table></div><div class="sheet-navigation"><button id="sheet-prev-cols">◀ Columns</button><button id="sheet-next-cols">Columns ▶</button><button id="sheet-prev-rows">▲ Rows</button><button id="sheet-next-rows">Rows ▼</button><span id="sheet-selection-label">${sheetSelection?.sheet===sheetIndex?selectedRect(sheetSelection).range:'Click a cell, Shift+click to select a rectangle'}</span><span>${filteredRows?`${filteredRows.length} matching rows`:`${cols[0]}${gridViewport.row}–${cols[cols.length-1]}${Math.min(10000,gridViewport.row+gridViewport.rows-1)}`}</span></div><div class="tabs">${book.sheets.map((s,i)=>`<button data-tab="${i}" class="${i===sheetIndex?'current':''}">${escapeHtml(s.name)}</button>`).join('')}</div></div>`;
    $('details').textContent=`${book.sheets.length} sheets · ${Object.keys(b.cells).length} filled cells`;
    $('sheet-go-to').onclick=()=>{
      const target=window.prompt('Go to cell (A1 ... ZZ10000)',cols[0]+gridViewport.row);
@@ -313,6 +319,7 @@ function renderCanvas(){
      try{
        const normalized=target.trim().toUpperCase();
        parseCellAddress(normalized);
+       sheetFilter=null;sheetFilterOffset=0;
        gridViewport=viewportAround(normalized,gridViewport);refresh();
        document.querySelector<HTMLInputElement>('[data-address="'+normalized+'"]')?.focus();
      }catch(error){message(String(error));}
@@ -320,7 +327,43 @@ function renderCanvas(){
    for(const [button,dr,dc] of [
      ['sheet-prev-cols',0,-gridViewport.cols],['sheet-next-cols',0,gridViewport.cols],
      ['sheet-prev-rows',-gridViewport.rows,0],['sheet-next-rows',gridViewport.rows,0],
-   ] as const){$(button).onclick=()=>{gridViewport=nextViewport(gridViewport,dr,dc);refresh();};}
+   ] as const){$(button).onclick=()=>{
+     if(filteredRows && dr!==0){
+       sheetFilterOffset=Math.max(0,Math.min(Math.max(0,filteredRows.length-gridViewport.rows),sheetFilterOffset+(dr<0?-gridViewport.rows:gridViewport.rows)));
+     }else gridViewport=nextViewport(gridViewport,dr,dc);
+     refresh();
+   };}
+   $('sheet-filter').onclick=()=>{
+     const col=window.prompt('Filter by column (e.g. B)',sheetFilter?.column??cols[0]);
+     if(col===null)return;
+     const column=col.trim().toUpperCase();
+     try{parseCellAddress(column+'1');}catch(error){message(String(error));return;}
+     const query=window.prompt('Show rows containing this text (case-insensitive)',sheetFilter?.query??'');
+     if(query===null)return;
+     if(!query.trim()){sheetFilter=null;sheetFilterOffset=0;refresh();return;}
+     if(query.length>256){message('Filter text is limited to 256 characters');return;}
+     sheetFilter={sheet:sheetIndex,column,query};sheetFilterOffset=0;refresh();
+   };
+   $('sheet-filter-clear').onclick=()=>{sheetFilter=null;sheetFilterOffset=0;refresh();};
+   const chosen=()=>sheetSelection?.sheet===sheetIndex?selectedRect(sheetSelection).range:'A1:D20';
+   $('sheet-copy').onclick=()=>void run(async()=>{
+     if(!sheetSelection||sheetSelection.sheet!==sheetIndex){message('Click a cell, then Shift+click to select a range');return;}
+     const contents=rangeAsTsv(b.cells,sheetSelection);
+     try{await navigator.clipboard.writeText(contents);message('Copied '+selectedRect(sheetSelection).range+' as TSV');}
+     catch{window.prompt('Copy TSV below',contents);}
+   });
+   $('sheet-replace').onclick=()=>void run(async()=>{
+     const raw=window.prompt('Find and replace in rectangle (formulas are preserved)',chosen());
+     if(!raw)return;
+     const range=parseRange(raw);
+     const needle=window.prompt('Find exact text (case-sensitive)');
+     if(!needle)return;
+     const replacement=window.prompt('Replace with','');
+     if(replacement===null)return;
+     if(!window.confirm('Replace occurrences of "'+needle+'" in '+range+'? Formula cells will be skipped.'))return;
+     const [result,count]=await invoke<[Book,number]>('workbook_replace_text',{expectedRevision:book.revision,sheet:sheetIndex,range,needle,replacement});
+     book=result;syncDirty();refresh();message('Replaced '+count+' occurrence(s).');
+   });
    $('sheet-sort').onclick=()=>void run(async()=>{
      const raw=window.prompt('Sort rectangle (up to 2,000 rows and 30 columns)','A1:D20');
      if(!raw)return;
@@ -353,7 +396,15 @@ function renderCanvas(){
      book=await invoke<Book>('workbook_clear_range',{expectedRevision:book.revision,sheet:sheetIndex,range});
      syncDirty();refresh();message('Cleared '+range);
    });
-   document.querySelectorAll<HTMLInputElement>('[data-address]').forEach(input=>{input.onpaste=e=>{const raw=e.clipboardData?.getData('text/plain');if(!raw || !(/[\t\n\r]/.test(raw)))return;e.preventDefault();const start=input.dataset.address!;const m=/^([A-Z]+)([0-9]+)$/.exec(start)!;const baseRow=Number(m[2]),baseCol=[...m[1]].reduce((n,c)=>n*26+c.charCodeAt(0)-64,0);const updates:Record<string,string>={};const rows=raw.replace(/\r\n/g,'\n').replace(/\r/g,'\n').replace(/\n$/,'').split('\n');rows.forEach((row,r)=>row.split('\t').forEach((value,c)=>{if(baseRow+r<=10000&&baseCol+c<=702)updates[toAddress(baseRow+r,baseCol+c)]=value;}));void run(async()=>{book=await invoke('workbook_put_batch',{expectedRevision:book.revision,sheet:sheetIndex,updates});syncDirty();refresh();message(`Pasted ${Object.keys(updates).length} cells`);});};input.onchange=()=>void run(async()=>{const address=input.dataset.address!,value=input.value;book=await invoke('workbook_put',{expectedRevision:book.revision,sheet:sheetIndex,address,value});syncDirty();$('rev').textContent=`Revision ${book.revision}`;if(value.startsWith('=')){try{const result=await invoke<string>('workbook_value',{sheet:sheetIndex,address});input.title=`Result: ${result}`;message(`${address} = ${result}`);}catch(e){input.title=String(e);message(String(e));}}});});
+   document.querySelectorAll<HTMLInputElement>('[data-address]').forEach(input=>{
+     input.onclick=event=>{
+       const address=input.dataset.address!;
+       if(event.shiftKey&&sheetSelection?.sheet===sheetIndex)sheetSelection={...sheetSelection,focus:address};
+       else sheetSelection={sheet:sheetIndex,anchor:address,focus:address};
+       document.querySelectorAll<HTMLInputElement>('[data-address]').forEach(cell=>cell.parentElement?.classList.toggle('selected-cell',isSelected(sheetSelection,sheetIndex,cell.dataset.address!)));
+       $('sheet-selection-label').textContent=selectedRect(sheetSelection).range;
+     };
+     input.onpaste=e=>{const raw=e.clipboardData?.getData('text/plain');if(!raw || !(/[\t\n\r]/.test(raw)))return;e.preventDefault();const start=input.dataset.address!;const m=/^([A-Z]+)([0-9]+)$/.exec(start)!;const baseRow=Number(m[2]),baseCol=[...m[1]].reduce((n,c)=>n*26+c.charCodeAt(0)-64,0);const updates:Record<string,string>={};const rows=raw.replace(/\r\n/g,'\n').replace(/\r/g,'\n').replace(/\n$/,'').split('\n');rows.forEach((row,r)=>row.split('\t').forEach((value,c)=>{if(baseRow+r<=10000&&baseCol+c<=702)updates[toAddress(baseRow+r,baseCol+c)]=value;}));void run(async()=>{book=await invoke('workbook_put_batch',{expectedRevision:book.revision,sheet:sheetIndex,updates});syncDirty();refresh();message(`Pasted ${Object.keys(updates).length} cells`);});};input.onchange=()=>void run(async()=>{const address=input.dataset.address!,value=input.value;book=await invoke('workbook_put',{expectedRevision:book.revision,sheet:sheetIndex,address,value});syncDirty();$('rev').textContent=`Revision ${book.revision}`;if(value.startsWith('=')){try{const result=await invoke<string>('workbook_value',{sheet:sheetIndex,address});input.title=`Result: ${result}`;message(`${address} = ${result}`);}catch(e){input.title=String(e);message(String(e));}}});});
    document.querySelectorAll<HTMLButtonElement>('[data-tab]').forEach(b=>b.onclick=()=>{sheetIndex=Number(b.dataset.tab);refresh();});
    $('rename-sheet').onclick=()=>void run(async()=>{const name=window.prompt('Sheet name',book.sheets[sheetIndex].name);if(name===null)return;book=await invoke('workbook_rename_sheet',{expectedRevision:book.revision,index:sheetIndex,name});syncDirty();refresh();});
    $('delete-sheet').onclick=()=>void run(async()=>{if(!window.confirm('Delete this sheet and all its cells?'))return;book=await invoke('workbook_delete_sheet',{expectedRevision:book.revision,index:sheetIndex});sheetIndex=Math.min(sheetIndex,book.sheets.length-1);syncDirty();refresh();});

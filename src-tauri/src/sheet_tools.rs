@@ -116,6 +116,34 @@ pub fn clear_range(book:&mut SheetBook,expected:u64,index:usize,range:&str)->Res
     if updates.is_empty(){return Ok(());}
     apply(book,expected,index,updates)
 }
+/// Replace a literal substring in non-formula cells within a bounded range.
+/// No regex and no case folding: replacement is deterministic for Unicode and
+/// never rewrites formula references. A zero-match operation is a true no-op.
+pub fn replace_text(book:&mut SheetBook,expected:u64,index:usize,range:&str,needle:&str,replacement:&str)->Result<usize,String>{
+    if book.revision!=expected{return Err("Workbook revision conflict".into());}
+    if needle.is_empty()||needle.chars().count()>256||replacement.chars().count()>256{
+        return Err("Replacement requires 1–256 search characters and at most 256 replacement characters".into());
+    }
+    let rect=Rect::parse(range,20_000)?;
+    let cells=sheet(book,index)?;
+    let mut updates=BTreeMap::new();
+    let mut replacements=0usize;
+    for (address,value) in cells{
+        if value.starts_with('=')||!value.contains(needle){continue;}
+        let letters=address.bytes().take_while(|b|b.is_ascii_uppercase()).count();
+        let (Ok(col),Ok(row))=(col_number(&address[..letters]),address[letters..].parse::<usize>())else{continue;};
+        if !(rect.top..=rect.bottom).contains(&row)||!(rect.left..=rect.right).contains(&col){continue;}
+        let count=value.matches(needle).count();
+        let changed=value.replace(needle,replacement);
+        if changed!=*value{
+            replacements=replacements.checked_add(count).ok_or("Replacement overflow")?;
+            updates.insert(address.clone(),changed);
+        }
+    }
+    if updates.is_empty(){return Ok(0);}
+    apply(book,expected,index,updates)?;
+    Ok(replacements)
+}
 #[cfg(test)]
 mod tests{
  use super::*;
@@ -161,6 +189,27 @@ mod tests{
   let before=book.clone();
   assert!(clear_range(&mut book,1,0,"A2:B3").is_err());
   assert_eq!(book,before);
+ }
+ #[test]fn replacement_respects_bounds_and_preserves_formulas(){
+  let mut b=seed();
+  b.put(1,0,"C2".into(),"=B2*2".into()).unwrap();
+  b.put(2,0,"A5".into(),"Bob outside".into()).unwrap();
+  let count=replace_text(&mut b,3,0,"A2:B4","Bob","Robert").unwrap();
+  assert_eq!(count,1);assert_eq!(b.sheets[0].cells["A2"],"Robert");
+  assert_eq!(b.sheets[0].cells["A5"],"Bob outside");
+  assert_eq!(b.sheets[0].cells["C2"],"=B2*2");
+  let revision=b.revision;
+  assert_eq!(replace_text(&mut b,revision,0,"A2:B4","Missing","Test").unwrap(),0);
+  assert_eq!(b.revision,revision);
+ }
+ #[test]fn replacement_is_atomic_on_bad_limits_and_revision(){
+  let mut b=seed();let before=b.clone();
+  for range in ["A1:A30000","A1:Z1000","C4:A1"] {
+   assert!(replace_text(&mut b,1,0,range,"a","b").is_err());
+  }
+  assert!(replace_text(&mut b,0,0,"A1:B4","a","b").is_err());
+  assert!(replace_text(&mut b,1,0,"A1:B4","","b").is_err());
+  assert_eq!(b,before);
  }
  #[test]fn invalid_and_huge_ranges_cannot_modify_data(){
   let mut book=seed();let old=book.clone();

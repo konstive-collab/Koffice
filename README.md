@@ -1,3 +1,5 @@
+> **Koffice v0.24 — Sheets interactions:** a temporary row filter, click/Shift-click range selection, TSV clipboard copying, and transaction-safe text replacement in native Sheets. [Guide](docs/SHEETS-INTERACTIONS.md).
+
 > **Koffice 0.23 — Sheets Workbench:** full-grid viewport navigation, range sorting, fill series and clear range. Native operations are atomic and formula-safe restrictions are explained. [Guide](docs/SHEETS-WORKBENCH.md).
 
 > **Koffice 0.22 — smarter Writer page layout:** split long paragraphs across preview pages while preserving inline formatting, and split tables at row boundaries with repeated THEAD headers. This is a read-only preview; the editor remains continuous. [Details](docs/WRITER-PAGINATION-V22.md).

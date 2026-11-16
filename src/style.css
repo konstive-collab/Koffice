@@ -317,3 +317,11 @@ body[data-app-mode]:not([data-app-mode="suite"]) .nav{display:none}
 .sheet-pane .grid .rowhead{position:sticky;left:0;z-index:2}
 .sheet-pane .grid thead .rowhead{z-index:4}
 @media(max-width:650px){.sheet-navigation{gap:4px}.sheet-navigation button{padding:6px;font-size:11px}.sheet-pane .grid-scroll{max-height:55vh}}
+
+/* v0.24: interactive cell ranges and non-destructive filtered view */
+.sheet-pane .grid td.selected-cell{background:#2b604e!important;box-shadow:inset 0 0 0 2px #73bf98}
+.sheet-pane .grid td.selected-cell input{background:#284b3e;color:#f4fff7}
+.sheet-navigation #sheet-selection-label{font-weight:600;color:#b8e7ce;margin-left:0}
+.sheet-head #sheet-filter,.sheet-head #sheet-copy{border-color:#577a66}
+.sheet-head #sheet-filter-clear{opacity:.82}
+.sheet-pane .grid td:focus-within{outline:2px solid #8edeb1;outline-offset:-2px}
