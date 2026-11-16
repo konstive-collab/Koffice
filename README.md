@@ -1,3 +1,5 @@
+> **Koffice 0.23 — Sheets Workbench:** full-grid viewport navigation, range sorting, fill series and clear range. Native operations are atomic and formula-safe restrictions are explained. [Guide](docs/SHEETS-WORKBENCH.md).
+
 > **Koffice 0.22 — smarter Writer page layout:** split long paragraphs across preview pages while preserving inline formatting, and split tables at row boundaries with repeated THEAD headers. This is a read-only preview; the editor remains continuous. [Details](docs/WRITER-PAGINATION-V22.md).
 
 > **Koffice 0.21 — paginated Writer preview:** a read-only, measured page view with header/footer, A4/Letter/Legal, zoom and page navigation. Unsaved text and selection remain in the original editor. Oversize blocks are identified rather than truncated from the document. [Read more](docs/WRITER-PAGINATION.md).

@@ -303,3 +303,17 @@ body[data-app-mode]:not([data-app-mode="suite"]) .nav{display:none}
 .writer-preview-page-content tr{break-inside:avoid;page-break-inside:avoid}
 .writer-preview-page-content td,.writer-preview-page-content th{overflow-wrap:anywhere;vertical-align:top}
 .writer-page-overflow .writer-preview-page-content{scrollbar-width:thin}
+
+/* Koffice Sheets 0.23 workbench */
+.sheet-head{flex-wrap:wrap;gap:7px}
+.sheet-head button{min-height:32px}
+.sheet-navigation{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:9px 12px;border-top:1px solid #444b46;background:var(--panel,#20272a)}
+.sheet-navigation button{border:1px solid #52615a;background:#29382f;color:#e7f4eb;padding:7px 10px;border-radius:7px;font-size:12px;cursor:pointer}
+.sheet-navigation button:hover{background:#355040}
+.sheet-navigation span{font:12px ui-monospace,monospace;color:#b7c6ba;margin-left:auto}
+.sheet-pane .grid-scroll{overflow:auto;max-height:calc(100vh - 315px);min-height:300px}
+.sheet-pane .grid{min-width:max-content}
+.sheet-pane .grid thead th{position:sticky;top:0;z-index:3}
+.sheet-pane .grid .rowhead{position:sticky;left:0;z-index:2}
+.sheet-pane .grid thead .rowhead{z-index:4}
+@media(max-width:650px){.sheet-navigation{gap:4px}.sheet-navigation button{padding:6px;font-size:11px}.sheet-pane .grid-scroll{max-height:55vh}}

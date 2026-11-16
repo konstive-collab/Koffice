@@ -1,5 +1,6 @@
 mod engine;
 mod suite;
+mod sheet_tools;
 mod base;
 mod automation;
 mod fusion;
@@ -201,6 +202,21 @@ fn fusion_apply_refresh(s:State<'_,Workspace>,token:u64,expected_revision:u64)->
 #[tauri::command] fn workbook_delete_sheet(s:State<'_,Workspace>,expected_revision:u64,index:usize)->Result<SheetBook,String>{let mut d=lock(&s.sheets)?;d.delete_sheet(expected_revision,index)?;Ok(d.clone())}
 #[tauri::command] fn workbook_value(s:State<'_,Workspace>,sheet:usize,address:String)->Result<String,String>{lock(&s.sheets)?.value(sheet,&address)}
 #[tauri::command] fn workbook_find(s:State<'_,Workspace>,needle:String)->Result<Vec<suite::CellMatch>,String>{lock(&s.sheets)?.find_cells(&needle,100)}
+#[tauri::command] fn workbook_sort_range(s:State<'_,Workspace>,expected_revision:u64,sheet:usize,range:String,key_column:String,ascending:bool,header:bool)->Result<SheetBook,String>{
+ let mut book=lock(&s.sheets)?;
+ sheet_tools::sort_range(&mut book,expected_revision,sheet,&range,&key_column,ascending,header)?;
+ Ok(book.clone())
+}
+#[tauri::command] fn workbook_fill_series(s:State<'_,Workspace>,expected_revision:u64,sheet:usize,range:String,start:f64,step:f64)->Result<SheetBook,String>{
+ let mut book=lock(&s.sheets)?;
+ sheet_tools::fill_series(&mut book,expected_revision,sheet,&range,start,step)?;
+ Ok(book.clone())
+}
+#[tauri::command] fn workbook_clear_range(s:State<'_,Workspace>,expected_revision:u64,sheet:usize,range:String)->Result<SheetBook,String>{
+ let mut book=lock(&s.sheets)?;
+ sheet_tools::clear_range(&mut book,expected_revision,sheet,&range)?;
+ Ok(book.clone())
+}
 #[tauri::command] fn workbook_statistics(s:State<'_,Workspace>,sheet:usize)->Result<suite::SheetStatistics,String>{lock(&s.sheets)?.statistics(sheet)}
 #[tauri::command] fn workbook_open(s:State<'_,Workspace>,path:String)->Result<SheetBook,String>{let d:SheetBook=suite::load_json(Path::new(&path))?;d.validate()?;*lock(&s.sheets)?=d.clone();s.sheets_generation.fetch_add(1,Ordering::SeqCst);Ok(d)}
 #[tauri::command] fn workbook_save(s:State<'_,Workspace>,path:String)->Result<(),String>{let d=lock(&s.sheets)?;d.validate()?;suite::save_json(Path::new(&path),&*d)}
@@ -357,4 +373,4 @@ fn automation_execute(s:State<'_,Workspace>,batch:automation::AutomationBatch)->
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run(){tauri::Builder::default().setup(|app|{use tauri::Manager;let mode=desktop::DesktopMode::from_args(std::env::args().skip(1));if let Some(window)=app.get_webview_window("main"){window.set_title(mode.window_title())?;}Ok(())}).plugin(tauri_plugin_dialog::init()).manage(Workspace{writer:Mutex::new(Document::blank()),sheets:Mutex::new(SheetBook::blank()),slides:Mutex::new(Deck::blank()),base:Mutex::new(Database::default()),sheets_namespace:format!("{}-{}",std::process::id(),SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos()),sheets_generation:AtomicU64::new(1),fusion_preview:Mutex::new(None),fusion_preview_sequence:AtomicU64::new(1)}).invoke_handler(tauri::generate_handler![desktop::desktop_mode,desktop::desktop_launch,snapshot,new_document,edit_document,writer_set_page,rename_document,open_document,save_document,writer_embed_sheet,writer_embedded_put,writer_remove_embedded,writer_embedded_value,writer_embedded_to_sheets,base_snapshot_to_slides,base_link_to_slides,slides_embed_sheet,slides_embedded_put,slides_embedded_frame,slides_embedded_remove,slides_embedded_value,slides_embedded_to_sheets,slides_base_link_status,slides_base_link_refresh,slides_base_link_reconnect,slides_base_link_detach,writer_embed_linked_sheet,writer_link_status,writer_refresh_link,writer_reconnect_link,writer_detach_link,fusion_file_sheets,writer_attach_file_sheet,writer_file_link_status,writer_refresh_file_link,writer_reconnect_file_link,writer_detach_file_link,fusion_graph,fusion_preview_refresh,fusion_apply_refresh,workbook_snapshot,workbook_new,workbook_put,workbook_add_sheet,workbook_put_batch,workbook_rename_sheet,workbook_delete_sheet,workbook_value,workbook_find,workbook_statistics,workbook_open,workbook_save,deck_snapshot,deck_new,deck_add,deck_update,deck_delete,deck_duplicate,deck_move,deck_open,deck_save,base_path,base_create,base_open,base_tables,base_create_table,base_insert,base_update,base_delete,base_browse,base_select,base_import_csv,base_indexes,base_create_index,base_delete_index,base_browse_page,base_to_workbook,base_integrity_check,base_backup,base_export_table_csv,base_group_report,automation_snapshot,automation_execute]).run(tauri::generate_context!()).expect("Failed to start Koffice")}
+pub fn run(){tauri::Builder::default().setup(|app|{use tauri::Manager;let mode=desktop::DesktopMode::from_args(std::env::args().skip(1));if let Some(window)=app.get_webview_window("main"){window.set_title(mode.window_title())?;}Ok(())}).plugin(tauri_plugin_dialog::init()).manage(Workspace{writer:Mutex::new(Document::blank()),sheets:Mutex::new(SheetBook::blank()),slides:Mutex::new(Deck::blank()),base:Mutex::new(Database::default()),sheets_namespace:format!("{}-{}",std::process::id(),SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos()),sheets_generation:AtomicU64::new(1),fusion_preview:Mutex::new(None),fusion_preview_sequence:AtomicU64::new(1)}).invoke_handler(tauri::generate_handler![desktop::desktop_mode,desktop::desktop_launch,snapshot,new_document,edit_document,writer_set_page,rename_document,open_document,save_document,writer_embed_sheet,writer_embedded_put,writer_remove_embedded,writer_embedded_value,writer_embedded_to_sheets,base_snapshot_to_slides,base_link_to_slides,slides_embed_sheet,slides_embedded_put,slides_embedded_frame,slides_embedded_remove,slides_embedded_value,slides_embedded_to_sheets,slides_base_link_status,slides_base_link_refresh,slides_base_link_reconnect,slides_base_link_detach,writer_embed_linked_sheet,writer_link_status,writer_refresh_link,writer_reconnect_link,writer_detach_link,fusion_file_sheets,writer_attach_file_sheet,writer_file_link_status,writer_refresh_file_link,writer_reconnect_file_link,writer_detach_file_link,fusion_graph,fusion_preview_refresh,fusion_apply_refresh,workbook_snapshot,workbook_new,workbook_put,workbook_add_sheet,workbook_put_batch,workbook_rename_sheet,workbook_delete_sheet,workbook_value,workbook_find,workbook_statistics,workbook_sort_range,workbook_fill_series,workbook_clear_range,workbook_open,workbook_save,deck_snapshot,deck_new,deck_add,deck_update,deck_delete,deck_duplicate,deck_move,deck_open,deck_save,base_path,base_create,base_open,base_tables,base_create_table,base_insert,base_update,base_delete,base_browse,base_select,base_import_csv,base_indexes,base_create_index,base_delete_index,base_browse_page,base_to_workbook,base_integrity_check,base_backup,base_export_table_csv,base_group_report,automation_snapshot,automation_execute]).run(tauri::generate_context!()).expect("Failed to start Koffice")}
