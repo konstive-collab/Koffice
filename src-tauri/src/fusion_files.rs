@@ -5,7 +5,7 @@ use crate::engine::Document;
 use crate::fusion::FileSheetLink;
 use crate::suite::{self, SheetBook, Sheet};
 use serde::Serialize;
-use std::path::{Path,PathBuf};
+use std::path::PathBuf;
 
 #[derive(Clone,Debug,Serialize,PartialEq)]
 pub struct FileLinkStatus {
@@ -198,7 +198,7 @@ mod tests {
         replacement.title="Different identity".into();
         suite::save_json(&path,&replacement).unwrap();
         assert!(refresh(&mut doc,1,&id).is_err());
-        let alternate=path();
+        let alternate=self::path();
         let mut other=SheetBook::blank();
         other.put(0,0,"A1".into(),"777".into()).unwrap();
         suite::save_json(&alternate,&other).unwrap();
