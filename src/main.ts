@@ -70,7 +70,7 @@ appLauncher.innerHTML='<section class="desktop-launcher-panel" role="dialog" ari
 document.body.append(appLauncher);
 function showAppLauncher(){appLauncher.hidden=false;appLauncher.querySelector<HTMLButtonElement>('[data-launch-kind]')?.focus();}
 function hideAppLauncher(){appLauncher.hidden=true;}
-for(const button of appLauncher.querySelectorAll<HTMLButtonElement>('[data-launch-kind]')){
+for(const button of Array.from(appLauncher.querySelectorAll<HTMLButtonElement>('[data-launch-kind]'))){
   button.onclick=()=>void run(async()=>{
     const kind=button.dataset.launchKind as Kind;
     const name=await invoke<string>('desktop_launch',{kind});
