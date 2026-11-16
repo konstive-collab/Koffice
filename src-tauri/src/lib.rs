@@ -5,6 +5,7 @@ mod automation;
 mod fusion;
 mod fusion_transfer;
 mod fusion_links;
+mod fusion_files;
 use engine::{Document, Edit};
 use suite::{Deck, SheetBook, Slide};
 use std::{path::Path, sync::{Mutex,atomic::{AtomicU64,Ordering}},time::{SystemTime,UNIX_EPOCH}};
@@ -115,6 +116,39 @@ fn writer_detach_link(s:State<'_,Workspace>,expected_revision:u64,object_id:Stri
     Ok(writer.clone())
 }
 
+/// The UI's file picker provides a .ksheet path. Never search the filesystem automatically.
+#[tauri::command]
+fn fusion_file_sheets(path:String)->Result<Vec<String>,String>{fusion_files::list_sheets(&path)}
+#[tauri::command]
+fn writer_attach_file_sheet(s:State<'_,Workspace>,expected_revision:u64,label:String,path:String,source_sheet:usize)->Result<Document,String>{
+    let mut writer=lock(&s.writer)?;
+    fusion_files::attach(&mut writer,expected_revision,&path,source_sheet,label)?;
+    Ok(writer.clone())
+}
+#[tauri::command]
+fn writer_file_link_status(s:State<'_,Workspace>,object_id:String)->Result<fusion_files::FileLinkStatus,String>{
+    let writer=lock(&s.writer)?;
+    fusion_files::status(&writer,&object_id)
+}
+#[tauri::command]
+fn writer_refresh_file_link(s:State<'_,Workspace>,expected_revision:u64,object_id:String)->Result<Document,String>{
+    let mut writer=lock(&s.writer)?;
+    fusion_files::refresh(&mut writer,expected_revision,&object_id)?;
+    Ok(writer.clone())
+}
+#[tauri::command]
+fn writer_reconnect_file_link(s:State<'_,Workspace>,expected_revision:u64,object_id:String,path:String,source_sheet:usize)->Result<Document,String>{
+    let mut writer=lock(&s.writer)?;
+    fusion_files::reconnect(&mut writer,expected_revision,&object_id,&path,source_sheet)?;
+    Ok(writer.clone())
+}
+#[tauri::command]
+fn writer_detach_file_link(s:State<'_,Workspace>,expected_revision:u64,object_id:String)->Result<Document,String>{
+    let mut writer=lock(&s.writer)?;
+    fusion_files::detach(&mut writer,expected_revision,&object_id)?;
+    Ok(writer.clone())
+}
+
 #[tauri::command] fn workbook_snapshot(s:State<'_,Workspace>)->Result<SheetBook,String>{Ok(lock(&s.sheets)?.clone())}
 #[tauri::command] fn workbook_new(s:State<'_,Workspace>)->Result<SheetBook,String>{let mut d=lock(&s.sheets)?;*d=SheetBook::blank();s.sheets_generation.fetch_add(1,Ordering::SeqCst);Ok(d.clone())}
 #[tauri::command] fn workbook_put(s:State<'_,Workspace>,expected_revision:u64,sheet:usize,address:String,value:String)->Result<SheetBook,String>{let mut d=lock(&s.sheets)?;d.put(expected_revision,sheet,address,value)?;Ok(d.clone())}
@@ -202,4 +236,4 @@ fn automation_execute(s:State<'_,Workspace>,batch:automation::AutomationBatch)->
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run(){tauri::Builder::default().plugin(tauri_plugin_dialog::init()).manage(Workspace{writer:Mutex::new(Document::blank()),sheets:Mutex::new(SheetBook::blank()),slides:Mutex::new(Deck::blank()),base:Mutex::new(Database::default()),sheets_namespace:format!("{}-{}",std::process::id(),SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos()),sheets_generation:AtomicU64::new(1)}).invoke_handler(tauri::generate_handler![snapshot,new_document,edit_document,rename_document,open_document,save_document,writer_embed_sheet,writer_embedded_put,writer_remove_embedded,writer_embedded_value,writer_embedded_to_sheets,base_snapshot_to_slides,writer_embed_linked_sheet,writer_link_status,writer_refresh_link,writer_reconnect_link,writer_detach_link,workbook_snapshot,workbook_new,workbook_put,workbook_add_sheet,workbook_put_batch,workbook_rename_sheet,workbook_delete_sheet,workbook_value,workbook_find,workbook_statistics,workbook_open,workbook_save,deck_snapshot,deck_new,deck_add,deck_update,deck_delete,deck_duplicate,deck_move,deck_open,deck_save,base_path,base_create,base_open,base_tables,base_create_table,base_insert,base_update,base_delete,base_browse,base_select,base_import_csv,base_indexes,base_create_index,base_delete_index,base_browse_page,base_to_workbook,base_integrity_check,base_backup,base_export_table_csv,base_group_report,automation_snapshot,automation_execute]).run(tauri::generate_context!()).expect("Failed to start Koffice")}
+pub fn run(){tauri::Builder::default().plugin(tauri_plugin_dialog::init()).manage(Workspace{writer:Mutex::new(Document::blank()),sheets:Mutex::new(SheetBook::blank()),slides:Mutex::new(Deck::blank()),base:Mutex::new(Database::default()),sheets_namespace:format!("{}-{}",std::process::id(),SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos()),sheets_generation:AtomicU64::new(1)}).invoke_handler(tauri::generate_handler![snapshot,new_document,edit_document,rename_document,open_document,save_document,writer_embed_sheet,writer_embedded_put,writer_remove_embedded,writer_embedded_value,writer_embedded_to_sheets,base_snapshot_to_slides,writer_embed_linked_sheet,writer_link_status,writer_refresh_link,writer_reconnect_link,writer_detach_link,fusion_file_sheets,writer_attach_file_sheet,writer_file_link_status,writer_refresh_file_link,writer_reconnect_file_link,writer_detach_file_link,workbook_snapshot,workbook_new,workbook_put,workbook_add_sheet,workbook_put_batch,workbook_rename_sheet,workbook_delete_sheet,workbook_value,workbook_find,workbook_statistics,workbook_open,workbook_save,deck_snapshot,deck_new,deck_add,deck_update,deck_delete,deck_duplicate,deck_move,deck_open,deck_save,base_path,base_create,base_open,base_tables,base_create_table,base_insert,base_update,base_delete,base_browse,base_select,base_import_csv,base_indexes,base_create_index,base_delete_index,base_browse_page,base_to_workbook,base_integrity_check,base_backup,base_export_table_csv,base_group_report,automation_snapshot,automation_execute]).run(tauri::generate_context!()).expect("Failed to start Koffice")}

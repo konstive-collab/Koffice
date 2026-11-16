@@ -1,6 +1,7 @@
 /** Koffice Fusion UI: an editable, self-contained Sheets grid hosted inside Writer. */
 export type SheetLink={source_token:string;source_title:string;source_sheet:string;source_revision:number;clean_embedded_revision:number};
-export type EmbeddedSheet={kind:'sheet';id:string;label:string;link?:SheetLink;workbook:{sheets:{cells:Record<string,string>}[];revision:number}};
+export type FileSheetLink={source_path:string;source_title:string;source_sheet:string;source_revision:number;clean_embedded_revision:number};
+export type EmbeddedSheet={kind:'sheet';id:string;label:string;link?:SheetLink;file_link?:FileSheetLink;workbook:{sheets:{cells:Record<string,string>}[];revision:number}};
 const esc=(s:string)=>s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
 const address=(row:number,mutCol:number)=>{let col='';while(mutCol>0){mutCol--;col=String.fromCharCode(65+mutCol%26)+col;mutCol=Math.floor(mutCol/26);}return col+row;};
 const column=(n:number)=>address(1,n).replace(/\d+$/,'');
@@ -18,6 +19,10 @@ export class FusionUI{
   private refreshLink:(id:string)=>Promise<void>,
   private reconnectLink:(id:string)=>Promise<void>,
   private detachLink:(id:string)=>Promise<void>,
+  private checkFile:(id:string)=>Promise<void>,
+  private refreshFile:(id:string)=>Promise<void>,
+  private reconnectFile:(id:string)=>Promise<void>,
+  private detachFile:(id:string)=>Promise<void>,
   private notify:(message:string)=>void
  ){
   this.root=document.createElement('div');this.root.className='fusion-overlay';this.root.hidden=true;
@@ -30,7 +35,7 @@ export class FusionUI{
    const cells=o.workbook.sheets[0].cells;
    const cols=Array.from({length:6},(_,i)=>column(i+1));
    const grid=Array.from({length:5},(_,r)=>'<tr>'+cols.map(c=>'<td>'+esc(cells[c+(r+1)]??'')+'</td>').join('')+'</tr>').join('');
-   return '<section class="fusion-embed"><div class="fusion-embed-head"><strong>'+esc(o.label)+'</strong><span>'+Object.keys(cells).length+' cells · '+(o.link?'Session-linked to '+esc(o.link.source_title)+' / '+esc(o.link.source_sheet):'Independent Sheets copy')+'</span><button data-fusion-edit="'+esc(o.id)+'">Edit</button><button data-fusion-extract="'+esc(o.id)+'">To Sheets</button>'+(o.link?'<button data-fusion-check="'+esc(o.id)+'">Check</button><button data-fusion-refresh="'+esc(o.id)+'">Refresh</button><button data-fusion-reconnect="'+esc(o.id)+'">Reconnect</button><button data-fusion-detach="'+esc(o.id)+'">Detach</button>':'')+'<button data-fusion-remove="'+esc(o.id)+'">Remove</button></div><div class="fusion-preview"><table><thead><tr>'+cols.map(c=>'<th>'+c+'</th>').join('')+'</tr></thead><tbody>'+grid+'</tbody></table></div></section>';
+   return '<section class="fusion-embed"><div class="fusion-embed-head"><strong>'+esc(o.label)+'</strong><span>'+Object.keys(cells).length+' cells · '+(o.file_link?'File-linked to '+esc(o.file_link.source_title)+' / '+esc(o.file_link.source_sheet):o.link?'Session-linked to '+esc(o.link.source_title)+' / '+esc(o.link.source_sheet):'Independent Sheets copy')+'</span><button data-fusion-edit="'+esc(o.id)+'">Edit</button><button data-fusion-extract="'+esc(o.id)+'">To Sheets</button>'+(o.link?'<button data-fusion-check="'+esc(o.id)+'">Check</button><button data-fusion-refresh="'+esc(o.id)+'">Refresh</button><button data-fusion-reconnect="'+esc(o.id)+'">Reconnect</button><button data-fusion-detach="'+esc(o.id)+'">Detach</button>':'')+(o.file_link?'<button data-file-check="'+esc(o.id)+'">Check file</button><button data-file-refresh="'+esc(o.id)+'">Refresh file</button><button data-file-reconnect="'+esc(o.id)+'">Relink file</button><button data-file-detach="'+esc(o.id)+'">Detach file</button>':'')+'<button data-fusion-remove="'+esc(o.id)+'">Remove</button></div><div class="fusion-preview"><table><thead><tr>'+cols.map(c=>'<th>'+c+'</th>').join('')+'</tr></thead><tbody>'+grid+'</tbody></table></div></section>';
   }).join('');
  }
  /** Static printable view with complete cell content. Large sparse sheets use address/value listings. */
@@ -66,6 +71,10 @@ export class FusionUI{
   wire('[data-fusion-refresh]',this.refreshLink,'data-fusion-refresh');
   wire('[data-fusion-reconnect]',this.reconnectLink,'data-fusion-reconnect');
   wire('[data-fusion-detach]',this.detachLink,'data-fusion-detach');
+  wire('[data-file-check]',this.checkFile,'data-file-check');
+  wire('[data-file-refresh]',this.refreshFile,'data-file-refresh');
+  wire('[data-file-reconnect]',this.reconnectFile,'data-file-reconnect');
+  wire('[data-file-detach]',this.detachFile,'data-file-detach');
   document.querySelectorAll<HTMLButtonElement>('[data-fusion-remove]').forEach(b=>b.onclick=()=>{
    if(window.confirm('Remove this embedded table?'))void this.remove(b.dataset.fusionRemove!).catch(e=>this.notify(String(e)));
   });

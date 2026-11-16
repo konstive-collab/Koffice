@@ -45,7 +45,7 @@ function toAddress(row:number,col:number){let letters='';while(col>0){col--;lett
 function parseCsv(input:string):string[][]{const rows:string[][]=[];let row:string[]=[],value='',quoted=false;for(let i=0;i<input.length;i++){const ch=input[i];if(quoted){if(ch==='\"'&&input[i+1]==='\"'){value+='\"';i++;}else if(ch==='\"'){quoted=false;}else value+=ch;}else if(ch==='\"'&&value===''){quoted=true;}else if(ch===','){row.push(value);value='';}else if(ch==='\n'||ch==='\r'){if(ch==='\r'&&input[i+1]==='\n')i++;row.push(value);value='';rows.push(row);row=[];}else value+=ch;}if(quoted)throw Error('Unclosed CSV quote');if(row.length||value){row.push(value);rows.push(row);}return rows;}
 
 const app=document.querySelector<HTMLDivElement>('#app')!;
-app.innerHTML=`<aside class="sidebar"><div class="logo"><div class="logo-mark">K</div><div><b>Koffice</b><small>COMMUNITY ALPHA</small></div></div><span class="heading">WORKSPACE</span><button class="nav" id="nav-writer">▤ &nbsp; Writer <span>Text</span></button><button class="nav" id="nav-sheets">▦ &nbsp; Sheets <span>Data</span></button><button class="nav" id="nav-slides">▣ &nbsp; Slides <span>Present</span></button><button class="nav" id="nav-base">▥ &nbsp; Base <span>Database</span></button><div class="side-foot"><div class="dot"></div><span>Running locally<br><small>${source}</small></span></div></aside><main class="main"><header class="header"><div><div class="breadcrumb">Your workspace <span> / </span> <span id="kind">Writer</span></div><div class="document-name" id="docname">Untitled</div></div><div class="version">v0.12 · OPEN SOURCE</div></header><div class="toolbar"><button id="new">＋ New</button><button id="open">↥ Open</button><button id="save">↧ Save</button><button id="saveas">Save as</button><div class="sep"></div><button id="find">Find / Replace</button><button id="automation">Automation API</button><button id="export">Export</button><button id="print">Print / PDF</button><div class="spacer"></div><button id="toggle-compact" title="Show or hide sidebar" aria-label="Toggle sidebar">☰</button><button id="zoom-out" aria-label="Zoom out">−</button><span id="zoom-value" aria-live="polite">100%</span><button id="zoom-in" aria-label="Zoom in">＋</button><span class="status" id="status">Ready</span></div><section class="canvas" id="canvas"></section><footer><span id="details">Koffice</span><span id="location">Unsaved workspace</span><span id="rev">Revision 0</span></footer><div id="notice" role="status"></div></main>`;
+app.innerHTML=`<aside class="sidebar"><div class="logo"><div class="logo-mark">K</div><div><b>Koffice</b><small>COMMUNITY ALPHA</small></div></div><span class="heading">WORKSPACE</span><button class="nav" id="nav-writer">▤ &nbsp; Writer <span>Text</span></button><button class="nav" id="nav-sheets">▦ &nbsp; Sheets <span>Data</span></button><button class="nav" id="nav-slides">▣ &nbsp; Slides <span>Present</span></button><button class="nav" id="nav-base">▥ &nbsp; Base <span>Database</span></button><div class="side-foot"><div class="dot"></div><span>Running locally<br><small>${source}</small></span></div></aside><main class="main"><header class="header"><div><div class="breadcrumb">Your workspace <span> / </span> <span id="kind">Writer</span></div><div class="document-name" id="docname">Untitled</div></div><div class="version">v0.13 · OPEN SOURCE</div></header><div class="toolbar"><button id="new">＋ New</button><button id="open">↥ Open</button><button id="save">↧ Save</button><button id="saveas">Save as</button><div class="sep"></div><button id="find">Find / Replace</button><button id="automation">Automation API</button><button id="export">Export</button><button id="print">Print / PDF</button><div class="spacer"></div><button id="toggle-compact" title="Show or hide sidebar" aria-label="Toggle sidebar">☰</button><button id="zoom-out" aria-label="Zoom out">−</button><span id="zoom-value" aria-live="polite">100%</span><button id="zoom-in" aria-label="Zoom in">＋</button><span class="status" id="status">Ready</span></div><section class="canvas" id="canvas"></section><footer><span id="details">Koffice</span><span id="location">Unsaved workspace</span><span id="rev">Revision 0</span></footer><div id="notice" role="status"></div></main>`;
 const fusion=new FusionUI(
   ()=>doc?.embedded_objects??[],
   updatesCallback,
@@ -82,8 +82,52 @@ const fusion=new FusionUI(
     doc=await invoke<Doc>('writer_detach_link',{expectedRevision:doc.revision,objectId:id});
     syncDirty();refresh();message('Link detached; embedded data retained.');
   });},
+  async id=>{await run(async()=>{
+    await flush();
+    const link=doc.embedded_objects?.find(o=>o.id===id)?.file_link;
+    if(!link)throw Error('Not linked to a file');
+    if(!window.confirm('Check source file?\n'+link.source_path+'\nKoffice will read this file only for this requested check.'))return;
+    const result=await invoke<{state:string;detail:string}>('writer_file_link_status',{objectId:id});
+    message('File link '+result.state+': '+result.detail);
+  });},
+  async id=>{await run(async()=>{
+    await flush();
+    const link=doc.embedded_objects?.find(o=>o.id===id)?.file_link;
+    if(!link)throw Error('Not linked to a file');
+    if(!window.confirm('Check and refresh from this file?\n'+link.source_path+'\nLocal edits will block replacement.'))return;
+    const status=await invoke<{state:string;detail:string}>('writer_file_link_status',{objectId:id});
+    if(status.state!=='changed'){message('File link '+status.state+': '+status.detail);return;}
+    doc=await invoke<Doc>('writer_refresh_file_link',{expectedRevision:doc.revision,objectId:id});
+    syncDirty();refresh();message('Updated from disk. Save Writer to retain the new snapshot.');
+  });},
+  async id=>{await run(async()=>{
+    await flush();
+    const selection=await chooseFusionFile();
+    if(!selection)return;
+    if(!window.confirm('Replace the source of this file-linked table with:\n'+selection.path+'\nOnly a clean embedded copy can be reconnected.'))return;
+    doc=await invoke<Doc>('writer_reconnect_file_link',{expectedRevision:doc.revision,objectId:id,path:selection.path,sourceSheet:selection.sourceSheet});
+    syncDirty();refresh();message('File link reconnected. Save Writer to persist.');
+  });},
+  async id=>{await run(async()=>{
+    await flush();
+    if(!window.confirm('Detach this file link and retain all embedded cells and formulas?'))return;
+    doc=await invoke<Doc>('writer_detach_file_link',{expectedRevision:doc.revision,objectId:id});
+    syncDirty();refresh();message('File link detached; embedded sheet remains editable.');
+  });},
   message
 );
+async function chooseFusionFile():Promise<{path:string;sourceSheet:number}|null>{
+  const path=await open({multiple:false,filters:[{name:'Koffice Sheets workbook',extensions:['ksheet']}]});
+  if(typeof path!=='string')return null;
+  const sheets=await invoke<string[]>('fusion_file_sheets',{path});
+  if(!sheets.length)throw Error('Source workbook has no worksheets');
+  const selected=window.prompt('Source worksheet number:\n'+sheets.map((name,i)=>String(i+1)+'. '+name).join('\n'),'1');
+  if(selected===null)return null;
+  if(!/^[1-9]\d*$/.test(selected.trim()))throw Error('Enter a valid worksheet number');
+  const index=Number(selected.trim())-1;
+  if(index<0||index>=sheets.length)throw Error('Worksheet number out of range');
+  return {path,sourceSheet:index};
+}
 async function updatesCallback(id:string,updates:Record<string,string>){
   await run(async()=>{
     await flush();
@@ -109,12 +153,21 @@ function refresh(){document.querySelectorAll('.nav').forEach(x=>x.classList.remo
 function syncDirty(){dirty=true;$('status').textContent='● Unsaved changes';}
 function renderCanvas(){
  if(active==='base'){base.render();$('details').textContent=`${base.tables.length} tables · SQLite`;return;}
- if(active==='writer') { $('canvas').innerHTML=`<div class="writer-area"><div class="formatbar"><button data-format="bold"><b>B</b></button><button data-format="italic"><i>I</i></button><button data-format="underline"><u>U</u></button><button data-format="heading">H1</button><button data-format="bullet">• List</button><button data-format="number">1. List</button><button data-format="date">Date</button><button data-format="line">Divider</button><button id="writer-find">Find / Replace</button><button id="writer-embed">Insert Sheets table</button><button id="writer-link">Link active Sheets</button><span class="hint">Plain text · keyboard shortcuts work in editor</span></div><div class="paper"><input class="paper-title" id="writer-title" maxlength="200" aria-label="Document title" value="${escapeHtml(doc.title)}"><div class="paper-meta">KOFFICE WRITER · YOUR DOCUMENT</div><textarea id="text" aria-label="Document content" spellcheck="true" placeholder="Every great idea starts with a blank page..."></textarea><div class="fusion-document-objects">${fusion.preview()}</div></div></div>`; const el=$('text') as HTMLTextAreaElement; el.value=doc.text; $('details').textContent=`${doc.text.trim()?doc.text.trim().split(/\s+/u).length:0} words · ${[...doc.text].length} characters`;
+ if(active==='writer') { $('canvas').innerHTML=`<div class="writer-area"><div class="formatbar"><button data-format="bold"><b>B</b></button><button data-format="italic"><i>I</i></button><button data-format="underline"><u>U</u></button><button data-format="heading">H1</button><button data-format="bullet">• List</button><button data-format="number">1. List</button><button data-format="date">Date</button><button data-format="line">Divider</button><button id="writer-find">Find / Replace</button><button id="writer-embed">Insert Sheets table</button><button id="writer-link">Link active Sheets</button><button id="writer-link-file">Link Sheets file</button><span class="hint">Plain text · keyboard shortcuts work in editor</span></div><div class="paper"><input class="paper-title" id="writer-title" maxlength="200" aria-label="Document title" value="${escapeHtml(doc.title)}"><div class="paper-meta">KOFFICE WRITER · YOUR DOCUMENT</div><textarea id="text" aria-label="Document content" spellcheck="true" placeholder="Every great idea starts with a blank page..."></textarea><div class="fusion-document-objects">${fusion.preview()}</div></div></div>`; const el=$('text') as HTMLTextAreaElement; el.value=doc.text; $('details').textContent=`${doc.text.trim()?doc.text.trim().split(/\s+/u).length:0} words · ${[...doc.text].length} characters`;
   let timer:ReturnType<typeof setTimeout>|undefined;
   el.oninput=()=>{syncDirty();clearTimeout(timer);timer=setTimeout(()=>void commitWriter(),360);};
   el.onblur=()=>{clearTimeout(timer);void commitWriter();};
   ($('writer-title') as HTMLInputElement).onchange=()=>void run(async()=>{await commitWriter();let v=($('writer-title') as HTMLInputElement).value; if(v===doc.title)return;doc=await invoke('rename_document',{expectedRevision:doc.revision,title:v});syncDirty();refresh();});
   $('writer-find').onclick=()=>findReplace();
+  $('writer-link-file').onclick=()=>void run(async()=>{
+    await flush();
+    const selection=await chooseFusionFile();
+    if(!selection)return;
+    const label=window.prompt('Label for file-linked table','Linked worksheet');
+    if(!label)return;
+    doc=await invoke<Doc>('writer_attach_file_sheet',{expectedRevision:doc.revision,label,path:selection.path,sourceSheet:selection.sourceSheet});
+    syncDirty();refresh();message('File-linked table embedded. Save Writer to persist the link.');
+  });
   $('writer-link').onclick=()=>void run(async()=>{
     await flush();
     const sheet=book.sheets[sheetIndex];

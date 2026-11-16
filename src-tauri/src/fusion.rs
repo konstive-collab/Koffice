@@ -1,5 +1,5 @@
 //! Koffice Fusion: self-contained, typed cross-editor objects.
-//! v0.12 adds guarded manual refresh links to the currently open Sheets session.
+//! Supports embedded, session-linked, and file-linked Sheets objects.
 use crate::suite::SheetBook;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
@@ -22,9 +22,20 @@ pub struct SheetLink {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct FileSheetLink {
+    // Canonical path recorded only after user selected it; opening a .kdoc never reads it.
+    pub source_path: String,
+    pub source_title: String,
+    pub source_sheet: String,
+    pub source_revision: u64,
+    pub clean_embedded_revision: u64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum EmbeddedObject {
-    Sheet { id: String, label: String, workbook: SheetBook, #[serde(default, skip_serializing_if = "Option::is_none")] link: Option<SheetLink> },
+    Sheet { id: String, label: String, workbook: SheetBook, #[serde(default, skip_serializing_if = "Option::is_none")] link: Option<SheetLink>, #[serde(default, skip_serializing_if = "Option::is_none")] file_link: Option<FileSheetLink> },
 }
 
 impl EmbeddedObject {
@@ -33,9 +44,11 @@ impl EmbeddedObject {
     pub fn workbook_mut(&mut self) -> &mut SheetBook { match self { Self::Sheet { workbook, .. } => workbook } }
     pub fn link(&self) -> Option<&SheetLink> { match self { Self::Sheet { link, .. } => link.as_ref() } }
     pub fn link_mut(&mut self) -> &mut Option<SheetLink> { match self { Self::Sheet { link, .. } => link } }
+    pub fn file_link(&self) -> Option<&FileSheetLink> { match self { Self::Sheet { file_link, .. } => file_link.as_ref() } }
+    pub fn file_link_mut(&mut self) -> &mut Option<FileSheetLink> { match self { Self::Sheet { file_link, .. } => file_link } }
     pub fn validate(&self) -> Result<(), String> {
         match self {
-            Self::Sheet { id, label, workbook, link } => {
+            Self::Sheet { id, label, workbook, link, file_link } => {
                 if id.is_empty() || id.len() > 96 || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
                     return Err("Invalid embedded object identifier".into());
                 }
@@ -49,6 +62,16 @@ impl EmbeddedObject {
                         || origin.source_sheet.trim().is_empty() || origin.source_sheet.chars().count() > 200
                         || origin.clean_embedded_revision > workbook.revision {
                         return Err("Invalid embedded link metadata".into());
+                    }
+                }
+                if link.is_some() && file_link.is_some() { return Err("Cannot link the same object to two sources".into()); }
+                if let Some(origin) = file_link {
+                    if origin.source_path.is_empty() || origin.source_path.len() > 4096
+                        || !origin.source_path.ends_with(".ksheet")
+                        || origin.source_title.trim().is_empty() || origin.source_title.chars().count() > 200
+                        || origin.source_sheet.trim().is_empty() || origin.source_sheet.chars().count() > 200
+                        || origin.clean_embedded_revision > workbook.revision {
+                        return Err("Invalid file source metadata".into());
                     }
                 }
                 workbook.validate()?;
@@ -83,7 +106,7 @@ pub fn copy_sheet(label: String, source: &SheetBook, sheet_index: usize) -> Resu
     source.validate()?;
     let tab = source.sheets.get(sheet_index).ok_or("Source sheet not found")?.clone();
     let book = SheetBook { format: source.format.clone(), title: label.clone(), revision: 0, sheets: vec![tab] };
-    let object = EmbeddedObject::Sheet { id: fresh_id(), label, workbook: book, link: None };
+    let object = EmbeddedObject::Sheet { id: fresh_id(), label, workbook: book, link: None, file_link: None };
     object.validate()?;
     Ok(object)
 }

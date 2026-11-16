@@ -1,3 +1,5 @@
+> **Fusion v0.13:** persist source-file links to .ksheet workbooks across Koffice restarts; explicit Check/Refresh/Relink/Detach with source validation and local-edit protection. Reading a linked path requires an explicit user action, never happens on .kdoc open. [Guide](docs/FUSION-FILES.md).
+
 > **Fusion v0.12 (experimental):** manually refreshed session-scoped Sheets → Writer links with source status, local-edit conflict protection, explicit reconnection, and lossless detach. This is **not** persistent auto-sync: after relaunch, reconnection must be explicit. [Link guide](docs/FUSION-LINKS.md).
 
 > **Fusion v0.11:** Lossless Writer → Sheets extraction appends embedded worksheets without replacing existing sheets; Koffice Base → Slides adds explicitly static, bounded table snapshots. [Fusion transfers](docs/FUSION-TRANSFERS.md). No live DB/Sheets links yet.
