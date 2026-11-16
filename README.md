@@ -1,3 +1,5 @@
+> **Koffice 0.25 — Sheets styles and freeze panes:** apply persistent bold/italic/alignment/background to bounded ranges and pin the first rows or columns in the grid. [Guide](docs/SHEETS-STYLING.md).
+
 > **Koffice v0.24 — Sheets interactions:** a temporary row filter, click/Shift-click range selection, TSV clipboard copying, and transaction-safe text replacement in native Sheets. [Guide](docs/SHEETS-INTERACTIONS.md).
 
 > **Koffice 0.23 — Sheets Workbench:** full-grid viewport navigation, range sorting, fill series and clear range. Native operations are atomic and formula-safe restrictions are explained. [Guide](docs/SHEETS-WORKBENCH.md).

@@ -6,6 +6,7 @@ import {DEFAULT_PAGE,pageCss,cssPageStyle,escapePageText,pagePrintableHtml,openP
 import {openWriterPages} from './writer-pagination';
 import {colName,parseCellAddress,parseRange,viewportAround,nextViewport,type GridViewport} from './sheets-workbench';
 import {matchingRows,selectedRect,isSelected,rangeAsTsv,type SheetFilter,type SheetSelection} from './sheets-interactions';
+import {EMPTY_STYLE,styleClass,styleUpdates,gridRows,type CellStyle,type SheetFreeze} from './sheets-style';
 import { BaseUI } from './base-ui';
 import { FusionUI, type EmbeddedSheet } from './fusion-ui';
 import { FusionManagerUI, type LinkNode, type PreviewReport } from './fusion-manager-ui';
@@ -15,7 +16,7 @@ type Kind='writer'|'sheets'|'slides'|'base';
 type DesktopMode=Kind|'suite';
 let desktopMode:DesktopMode='suite';
 type Doc={format:string;title:string;text:string;rich_html?:string|null;page?:WriterPage;revision:number;embedded_objects?:EmbeddedSheet[]};
-type Book={format:string;title:string;revision:number;sheets:{name:string;cells:Record<string,string>}[]};
+type Book={format:string;title:string;revision:number;sheets:{name:string;cells:Record<string,string>;styles?:Record<string,CellStyle>;freeze?:SheetFreeze|null}[]};
 type BaseSlideSource={database_path:string;table:string;clean:{title:string;body:string;notes:string}};
 type Slide={title:string;body:string;notes:string;base_source?:BaseSlideSource;embedded_objects?:EmbeddedSheet[];object_frames?:Record<string,SlideObjectFrame>};
 type Deck={format:string;title:string;revision:number;slides:Slide[]};
@@ -308,10 +309,13 @@ function renderCanvas(){
     btn.onclick=()=>formatSelection(el,btn.dataset.format as WriterFormat);
   });
  } else if(active==='sheets'){
-   const b=book.sheets[sheetIndex];const cols=Array.from({length:gridViewport.cols},(_,i)=>colName(gridViewport.col+i));
+   const b=book.sheets[sheetIndex];
+   const freeze=b.freeze??{rows:0,cols:0};
+   const visibleCols=gridRows(gridViewport.col,gridViewport.cols,freeze.cols,702);
+   const cols=visibleCols.map(colName);
    const filteredRows=sheetFilter?.sheet===sheetIndex?matchingRows(b.cells,sheetFilter):null;
-   const displayedRows=filteredRows?filteredRows.slice(sheetFilterOffset,sheetFilterOffset+gridViewport.rows):Array.from({length:gridViewport.rows},(_,i)=>gridViewport.row+i);
-   $('canvas').innerHTML=`<div class="sheet-pane"><div class="sheet-head"><b>Spreadsheet</b><span>Grid: 10,000 rows × 702 columns</span><button id="sheet-go-to">Go to cell</button><button id="sheet-sort">Sort range</button><button id="sheet-fill">Fill series</button><button id="sheet-clear">Clear range</button><button id="sheet-replace">Replace text</button><button id="sheet-filter">Filter rows</button><button id="sheet-filter-clear" title="Remove row filter">Show all</button><button id="sheet-copy">Copy range</button><button id="import-csv">Import CSV</button><button id="find-cells">Find cells</button><button id="sheet-stats">Analyze</button><button id="rename-sheet">Rename</button><button id="delete-sheet">Delete</button><button id="add-sheet">＋ Add sheet</button><input id="csv-picker" type="file" accept=".csv,text/csv" hidden></div><div class="grid-scroll"><table class="grid"><thead><tr><th class="rowhead"></th>${cols.map(c=>`<th>${c}</th>`).join('')}</tr></thead><tbody>${displayedRows.map(row=>`<tr><th class="rowhead">${row}</th>${cols.map(c=>`<td class="${isSelected(sheetSelection,sheetIndex,c+row)?'selected-cell':''}"><input spellcheck="false" data-address="${c}${row}" value="${escapeHtml(b.cells[`${c}${row}`]??'')}" aria-label="${c}${row}"></td>`).join('')}</tr>`).join('')}</tbody></table></div><div class="sheet-navigation"><button id="sheet-prev-cols">◀ Columns</button><button id="sheet-next-cols">Columns ▶</button><button id="sheet-prev-rows">▲ Rows</button><button id="sheet-next-rows">Rows ▼</button><span id="sheet-selection-label">${sheetSelection?.sheet===sheetIndex?selectedRect(sheetSelection).range:'Click a cell, Shift+click to select a rectangle'}</span><span>${filteredRows?`${filteredRows.length} matching rows`:`${cols[0]}${gridViewport.row}–${cols[cols.length-1]}${Math.min(10000,gridViewport.row+gridViewport.rows-1)}`}</span></div><div class="tabs">${book.sheets.map((s,i)=>`<button data-tab="${i}" class="${i===sheetIndex?'current':''}">${escapeHtml(s.name)}</button>`).join('')}</div></div>`;
+   const displayedRows=filteredRows?filteredRows.slice(sheetFilterOffset,sheetFilterOffset+gridViewport.rows):gridRows(gridViewport.row,gridViewport.rows,freeze.rows);
+   $('canvas').innerHTML=`<div class="sheet-pane"><div class="sheet-head"><b>Spreadsheet</b><span>Grid: 10,000 rows × 702 columns</span><button id="sheet-go-to">Go to cell</button><button id="sheet-sort">Sort range</button><button id="sheet-fill">Fill series</button><button id="sheet-clear">Clear range</button><button id="sheet-replace">Replace text</button><button id="sheet-filter">Filter rows</button><button id="sheet-filter-clear" title="Remove row filter">Show all</button><button id="sheet-copy">Copy range</button><button id="sheet-style">Format cells</button><button id="sheet-freeze">Freeze panes</button><button id="import-csv">Import CSV</button><button id="find-cells">Find cells</button><button id="sheet-stats">Analyze</button><button id="rename-sheet">Rename</button><button id="delete-sheet">Delete</button><button id="add-sheet">＋ Add sheet</button><input id="csv-picker" type="file" accept=".csv,text/csv" hidden></div><div class="grid-scroll"><table class="grid"><thead><tr><th class="rowhead"></th>${cols.map(c=>`<th>${c}</th>`).join('')}</tr></thead><tbody>${displayedRows.map(row=>`<tr><th class="rowhead">${row}</th>${cols.map(c=>`<td class="${[isSelected(sheetSelection,sheetIndex,c+row)?'selected-cell':'',styleClass(b.styles?.[c+row]),(!filteredRows&&freeze.rows>0&&row<=freeze.rows)?'frozen-row':'',(!filteredRows&&freeze.cols>0&&visibleCols[cols.indexOf(c)]<=freeze.cols)?'frozen-col':''].filter(Boolean).join(' ')}"><input spellcheck="false" data-address="${c}${row}" value="${escapeHtml(b.cells[`${c}${row}`]??'')}" aria-label="${c}${row}"></td>`).join('')}</tr>`).join('')}</tbody></table></div><div class="sheet-navigation"><button id="sheet-prev-cols">◀ Columns</button><button id="sheet-next-cols">Columns ▶</button><button id="sheet-prev-rows">▲ Rows</button><button id="sheet-next-rows">Rows ▼</button><span id="sheet-selection-label">${sheetSelection?.sheet===sheetIndex?selectedRect(sheetSelection).range:'Click a cell, Shift+click to select a rectangle'}</span><span>${filteredRows?`${filteredRows.length} matching rows`:`${cols[0]}${gridViewport.row}–${cols[cols.length-1]}${Math.min(10000,gridViewport.row+gridViewport.rows-1)}`}</span></div><div class="tabs">${book.sheets.map((s,i)=>`<button data-tab="${i}" class="${i===sheetIndex?'current':''}">${escapeHtml(s.name)}</button>`).join('')}</div></div>`;
    $('details').textContent=`${book.sheets.length} sheets · ${Object.keys(b.cells).length} filled cells`;
    $('sheet-go-to').onclick=()=>{
      const target=window.prompt('Go to cell (A1 ... ZZ10000)',cols[0]+gridViewport.row);
@@ -333,6 +337,32 @@ function renderCanvas(){
      }else gridViewport=nextViewport(gridViewport,dr,dc);
      refresh();
    };}
+   $('sheet-style').onclick=()=>void run(async()=>{
+     if(!sheetSelection||sheetSelection.sheet!==sheetIndex){message('Select a range with click and Shift+click');return;}
+     const range=selectedRect(sheetSelection).range;
+     const fill=window.prompt('Background: none, yellow, green, blue, red, gray','none');
+     if(fill===null)return;
+     const alignment=window.prompt('Alignment: left, center, right','left');
+     if(alignment===null)return;
+     const normalizedFill=fill.trim().toLowerCase()==='none'?'':fill.trim().toLowerCase();
+     const normalizedAlign=alignment.trim().toLowerCase();
+     const bold=window.confirm('Make selected cells bold?');
+     const italic=window.confirm('Make selected cells italic?');
+     const style:CellStyle={...EMPTY_STYLE,bold,italic,align:normalizedAlign,fill:normalizedFill};
+     const updates=styleUpdates(range,style);
+     book=await invoke<Book>('workbook_style_cells',{expectedRevision:book.revision,sheet:sheetIndex,updates});
+     syncDirty();refresh();message('Formatted '+range);
+   });
+   $('sheet-freeze').onclick=()=>void run(async()=>{
+     const rowText=window.prompt('Freeze first how many rows? (0–3)',String(freeze.rows));
+     if(rowText===null)return;
+     const colText=window.prompt('Freeze first how many columns? (0–3)',String(freeze.cols));
+     if(colText===null)return;
+     const rows=Number(rowText),cols=Number(colText);
+     if(!Number.isInteger(rows)||rows<0||rows>3||!Number.isInteger(cols)||cols<0||cols>3)throw Error('Freeze requires 0–3 rows and columns');
+     book=await invoke<Book>('workbook_set_freeze',{expectedRevision:book.revision,sheet:sheetIndex,freeze:rows||cols?{rows,cols}:null});
+     syncDirty();refresh();message('Freeze panes updated');
+   });
    $('sheet-filter').onclick=()=>{
      const col=window.prompt('Filter by column (e.g. B)',sheetFilter?.column??cols[0]);
      if(col===null)return;

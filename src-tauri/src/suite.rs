@@ -15,11 +15,39 @@ pub struct SheetBook {
     pub revision: u64,
     pub sheets: Vec<Sheet>,
 }
+#[derive(Clone,Debug,Serialize,Deserialize,PartialEq,Eq)]
+#[serde(deny_unknown_fields)]
+pub struct CellStyle {
+    #[serde(default)] pub bold:bool,
+    #[serde(default)] pub italic:bool,
+    #[serde(default)] pub align:String,
+    #[serde(default)] pub fill:String,
+}
+impl CellStyle {
+    pub fn validate(&self)->Result<(),String>{
+        if !["","left","center","right"].contains(&self.align.as_str()){return Err("Unsupported alignment".into());}
+        if !["","yellow","green","blue","red","gray"].contains(&self.fill.as_str()){return Err("Unsupported fill".into());}
+        Ok(())
+    }
+}
+#[derive(Clone,Debug,Serialize,Deserialize,PartialEq,Eq)]
+#[serde(deny_unknown_fields)]
+pub struct SheetFreeze {pub rows:u8,pub cols:u8}
+impl SheetFreeze{
+    pub fn validate(&self)->Result<(),String>{
+        if self.rows>3||self.cols>3{return Err("Freeze supports 0–3 rows and columns".into());}
+        Ok(())
+    }
+}
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Sheet {
     pub name: String,
     pub cells: BTreeMap<String, String>,
+    #[serde(default,skip_serializing_if="BTreeMap::is_empty")]
+    pub styles:BTreeMap<String,CellStyle>,
+    #[serde(default,skip_serializing_if="Option::is_none")]
+    pub freeze:Option<SheetFreeze>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -130,7 +158,7 @@ impl SheetBook {
             minimum: min, maximum: max,
         })
     }
-    pub fn blank() -> Self { Self { format: "koffice.sheets.v1".into(), title: "Untitled workbook".into(), revision: 0, sheets: vec![Sheet { name: "Sheet 1".into(), cells: BTreeMap::new() }] } }
+    pub fn blank() -> Self { Self { format: "koffice.sheets.v1".into(), title: "Untitled workbook".into(), revision: 0, sheets: vec![Sheet { name: "Sheet 1".into(), cells: BTreeMap::new(), styles:BTreeMap::new(), freeze:None }] } }
     pub fn validate(&self) -> Result<(), String> {
         if self.format != "koffice.sheets.v1" { return Err("Unsupported workbook format".into()); }
         check_title(&self.title)?;
@@ -140,11 +168,33 @@ impl SheetBook {
         for sheet in &self.sheets {
             check_title(&sheet.name)?;
             if !names.insert(sheet.name.to_lowercase()) { return Err("Duplicate sheet name".into()); }
+            if sheet.styles.len()>20_000{return Err("Too many styled cells".into());}
+            for (address,style) in &sheet.styles{parse_address(address)?;style.validate()?;}
+            if let Some(freeze)=&sheet.freeze{freeze.validate()?;}
             count += sheet.cells.len();
             if count > MAX_CELLS { return Err("Too many cells".into()); }
             for (address, value) in &sheet.cells { parse_address(address)?; if value.len() > MAX_INPUT { return Err("Cell content too long".into()); } }
         }
         Ok(())
+    }
+    pub fn style_cells(&mut self,expected:u64,sheet:usize,updates:BTreeMap<String,Option<CellStyle>>)->Result<(),String>{
+        check_revision(self.revision,expected)?;
+        if updates.is_empty()||updates.len()>5_000{return Err("Style update requires 1–5,000 cells".into());}
+        let mut next=self.clone();
+        let tab=next.sheets.get_mut(sheet).ok_or("Sheet not found")?;
+        for (address,style) in updates {
+            parse_address(&address)?;
+            if let Some(style)=style{style.validate()?;tab.styles.insert(address,style);}
+            else{tab.styles.remove(&address);}
+        }
+        next.bump()?;next.validate()?;*self=next;Ok(())
+    }
+    pub fn set_freeze(&mut self,expected:u64,sheet:usize,freeze:Option<SheetFreeze>)->Result<(),String>{
+        check_revision(self.revision,expected)?;
+        if let Some(value)=&freeze{value.validate()?;}
+        let mut next=self.clone();
+        next.sheets.get_mut(sheet).ok_or("Sheet not found")?.freeze=freeze;
+        next.bump()?;next.validate()?;*self=next;Ok(())
     }
     pub fn put(&mut self, expected: u64, sheet: usize, address: String, value: String) -> Result<(), String> {
         check_revision(self.revision, expected)?;
@@ -158,7 +208,7 @@ impl SheetBook {
     pub fn add_sheet(&mut self, expected: u64, name: String) -> Result<(), String> {
         check_revision(self.revision, expected)?;
         let mut copy = self.clone();
-        copy.sheets.push(Sheet { name, cells: BTreeMap::new() });
+        copy.sheets.push(Sheet { name, cells: BTreeMap::new(), styles:BTreeMap::new(), freeze:None });
         copy.bump()?; copy.validate()?; *self = copy; Ok(())
     }
     /// Atomic multi-cell edit, including clipboard paste. A single revision is committed.
@@ -465,6 +515,30 @@ pub fn save_json<T:Serialize>(path:&Path,object:&T)->Result<(),String> {
    book.put(2,0,"C1".into(),"text".into()).unwrap();
    book.put(3,0,"D1".into(),"=C1*2".into()).unwrap();
    assert!(book.value(0,"D1").unwrap_err().contains("not a number"));
+ }
+ #[test] fn cell_style_and_freeze_roundtrip_and_legacy(){
+    let mut b=SheetBook::blank();
+    let mut styles=BTreeMap::new();
+    styles.insert("B2".into(),Some(CellStyle{bold:true,italic:false,align:"center".into(),fill:"yellow".into()}));
+    b.style_cells(0,0,styles).unwrap();
+    b.set_freeze(1,0,Some(SheetFreeze{rows:1,cols:1})).unwrap();
+    let json=serde_json::to_string(&b).unwrap();
+    let reopened:SheetBook=serde_json::from_str(&json).unwrap();
+    assert_eq!(reopened,b);
+    let older=r#"{"format":"koffice.sheets.v1","title":"Old","revision":0,"sheets":[{"name":"Sheet 1","cells":{"A1":"hi"}}]}"#;
+    let legacy:SheetBook=serde_json::from_str(older).unwrap();
+    assert!(legacy.sheets[0].styles.is_empty());
+    assert!(legacy.sheets[0].freeze.is_none());
+    legacy.validate().unwrap();
+ }
+ #[test] fn invalid_style_and_freeze_do_not_mutate_book(){
+    let mut b=SheetBook::blank();let original=b.clone();
+    let mut styles=BTreeMap::new();
+    styles.insert("A1".into(),Some(CellStyle{bold:true,italic:false,align:"center".into(),fill:"javascript:bad".into()}));
+    assert!(b.style_cells(0,0,styles).is_err());
+    assert!(b.set_freeze(0,0,Some(SheetFreeze{rows:4,cols:0})).is_err());
+    assert!(b.set_freeze(1,0,Some(SheetFreeze{rows:0,cols:0})).is_err());
+    assert_eq!(b,original);
  }
  #[test] fn arithmetic_precedence() {let mut b=SheetBook::blank();b.put(0,0,"C3".into(),"=2+3*4".into()).unwrap(); assert_eq!(b.value(0,"C3").unwrap(),"14");}
 

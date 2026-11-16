@@ -325,3 +325,19 @@ body[data-app-mode]:not([data-app-mode="suite"]) .nav{display:none}
 .sheet-head #sheet-filter,.sheet-head #sheet-copy{border-color:#577a66}
 .sheet-head #sheet-filter-clear{opacity:.82}
 .sheet-pane .grid td:focus-within{outline:2px solid #8edeb1;outline-offset:-2px}
+
+/* v0.25: saved cell formatting and pinned leading rows/columns */
+.sheet-pane .grid td.s-bold input{font-weight:750}
+.sheet-pane .grid td.s-italic input{font-style:italic}
+.sheet-pane .grid td.s-align-left input{text-align:left}
+.sheet-pane .grid td.s-align-center input{text-align:center}
+.sheet-pane .grid td.s-align-right input{text-align:right}
+.sheet-pane .grid td.s-fill-yellow input{background:#665b2d!important;color:#fff4b5!important}
+.sheet-pane .grid td.s-fill-green input{background:#264f38!important;color:#d6ffe3!important}
+.sheet-pane .grid td.s-fill-blue input{background:#274c6a!important;color:#e2f1ff!important}
+.sheet-pane .grid td.s-fill-red input{background:#623739!important;color:#ffdfdf!important}
+.sheet-pane .grid td.s-fill-gray input{background:#424950!important;color:#f3f5f5!important}
+.sheet-pane .grid td.frozen-row{border-bottom:2px solid #9cc8b0}
+.sheet-pane .grid td.frozen-col{border-right:2px solid #9cc8b0}
+.sheet-pane .grid td.selected-cell{box-shadow:inset 0 0 0 2px #86e6ba}
+.sheet-head #sheet-style,.sheet-head #sheet-freeze{border-color:#669b7c}
