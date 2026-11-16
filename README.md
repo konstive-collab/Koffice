@@ -1,3 +1,5 @@
+> **Project priority (v0.9):** cross-platform desktop usability, performance and reliable document editing are the primary goals. AI integrations are optional. See [Desktop v0.9 improvements and platform build guide](docs/desktop-v0.9.md).
+
 ## v0.6 alpha
 
 Database diagnostics (`PRAGMA integrity_check`), safe SQLite `VACUUM INTO` backups, full-table CSV export (up to 10,000 rows) and grouped read-only COUNT/SUM/AVG reports are available through Base UI and typed Tauri commands. The Windows installer version is numeric to satisfy MSI packaging rules. Other Office-native format support is not yet implemented.
