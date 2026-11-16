@@ -12,6 +12,7 @@ export class FusionUI{
   private getObjects:()=>EmbeddedSheet[],
   private saveCells:(id:string,updates:Record<string,string>)=>Promise<void>,
   private remove:(id:string)=>Promise<void>,
+  private extract:(id:string)=>Promise<void>,
   private notify:(message:string)=>void
  ){
   this.root=document.createElement('div');this.root.className='fusion-overlay';this.root.hidden=true;
@@ -24,7 +25,7 @@ export class FusionUI{
    const cells=o.workbook.sheets[0].cells;
    const cols=Array.from({length:6},(_,i)=>column(i+1));
    const grid=Array.from({length:5},(_,r)=>'<tr>'+cols.map(c=>'<td>'+esc(cells[c+(r+1)]??'')+'</td>').join('')+'</tr>').join('');
-   return '<section class="fusion-embed"><div class="fusion-embed-head"><strong>'+esc(o.label)+'</strong><span>'+Object.keys(cells).length+' cells · Sheets engine</span><button data-fusion-edit="'+esc(o.id)+'">Edit</button><button data-fusion-remove="'+esc(o.id)+'">Remove</button></div><div class="fusion-preview"><table><thead><tr>'+cols.map(c=>'<th>'+c+'</th>').join('')+'</tr></thead><tbody>'+grid+'</tbody></table></div></section>';
+   return '<section class="fusion-embed"><div class="fusion-embed-head"><strong>'+esc(o.label)+'</strong><span>'+Object.keys(cells).length+' cells · Sheets engine</span><button data-fusion-edit="'+esc(o.id)+'">Edit</button><button data-fusion-extract="'+esc(o.id)+'">To Sheets</button><button data-fusion-remove="'+esc(o.id)+'">Remove</button></div><div class="fusion-preview"><table><thead><tr>'+cols.map(c=>'<th>'+c+'</th>').join('')+'</tr></thead><tbody>'+grid+'</tbody></table></div></section>';
   }).join('');
  }
  /** Static printable view with complete cell content. Large sparse sheets use address/value listings. */
@@ -48,6 +49,9 @@ export class FusionUI{
  }
  wirePreview(){
   document.querySelectorAll<HTMLButtonElement>('[data-fusion-edit]').forEach(b=>b.onclick=()=>this.open(b.dataset.fusionEdit!));
+  document.querySelectorAll<HTMLButtonElement>('[data-fusion-extract]').forEach(b=>b.onclick=()=>{
+   void this.extract(b.dataset.fusionExtract!).catch(e=>this.notify(String(e)));
+  });
   document.querySelectorAll<HTMLButtonElement>('[data-fusion-remove]').forEach(b=>b.onclick=()=>{
    if(window.confirm('Remove this embedded table?'))void this.remove(b.dataset.fusionRemove!).catch(e=>this.notify(String(e)));
   });

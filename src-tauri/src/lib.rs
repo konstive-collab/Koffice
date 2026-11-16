@@ -3,6 +3,7 @@ mod suite;
 mod base;
 mod automation;
 mod fusion;
+mod fusion_transfer;
 use engine::{Document, Edit};
 use suite::{Deck, SheetBook, Slide};
 use std::{path::Path, sync::Mutex};
@@ -48,6 +49,30 @@ fn writer_embedded_value(s:State<'_,Workspace>,object_id:String,address:String)-
     let writer=lock(&s.writer)?;
     let object=writer.embedded_objects.iter().find(|o|o.id()==object_id).ok_or("Embedded object not found")?;
     object.workbook().value(0,&address)
+}
+
+/// Lossless copy of an embedded Writer worksheet into the already-open Sheets workbook.
+/// All current sheets survive. Lock ordering stays writer -> sheets.
+#[tauri::command]
+fn writer_embedded_to_sheets(
+    s:State<'_,Workspace>, object_id:String, expected_revision:u64,
+)->Result<SheetBook,String> {
+    let writer=lock(&s.writer)?;
+    let mut sheets=lock(&s.sheets)?;
+    fusion_transfer::append_embedded_to_workbook(&writer,&object_id,&mut sheets,expected_revision)?;
+    Ok(sheets.clone())
+}
+
+/// Appends a static first-page Base table snapshot to Slides; source DB and
+/// existing presentation slides are unchanged. No live link is claimed.
+#[tauri::command]
+fn base_snapshot_to_slides(
+    s:State<'_,Workspace>,table:String,expected_revision:u64,
+)->Result<Deck,String> {
+    let rows=lock(&s.base)?.browse_page(&table,None,0)?;
+    let mut slides=lock(&s.slides)?;
+    fusion_transfer::append_base_snapshot(&mut slides,expected_revision,&table,&rows)?;
+    Ok(slides.clone())
 }
 
 #[tauri::command] fn workbook_snapshot(s:State<'_,Workspace>)->Result<SheetBook,String>{Ok(lock(&s.sheets)?.clone())}
@@ -137,4 +162,4 @@ fn automation_execute(s:State<'_,Workspace>,batch:automation::AutomationBatch)->
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run(){tauri::Builder::default().plugin(tauri_plugin_dialog::init()).manage(Workspace{writer:Mutex::new(Document::blank()),sheets:Mutex::new(SheetBook::blank()),slides:Mutex::new(Deck::blank()),base:Mutex::new(Database::default())}).invoke_handler(tauri::generate_handler![snapshot,new_document,edit_document,rename_document,open_document,save_document,writer_embed_sheet,writer_embedded_put,writer_remove_embedded,writer_embedded_value,workbook_snapshot,workbook_new,workbook_put,workbook_add_sheet,workbook_put_batch,workbook_rename_sheet,workbook_delete_sheet,workbook_value,workbook_find,workbook_statistics,workbook_open,workbook_save,deck_snapshot,deck_new,deck_add,deck_update,deck_delete,deck_duplicate,deck_move,deck_open,deck_save,base_path,base_create,base_open,base_tables,base_create_table,base_insert,base_update,base_delete,base_browse,base_select,base_import_csv,base_indexes,base_create_index,base_delete_index,base_browse_page,base_to_workbook,base_integrity_check,base_backup,base_export_table_csv,base_group_report,automation_snapshot,automation_execute]).run(tauri::generate_context!()).expect("Failed to start Koffice")}
+pub fn run(){tauri::Builder::default().plugin(tauri_plugin_dialog::init()).manage(Workspace{writer:Mutex::new(Document::blank()),sheets:Mutex::new(SheetBook::blank()),slides:Mutex::new(Deck::blank()),base:Mutex::new(Database::default())}).invoke_handler(tauri::generate_handler![snapshot,new_document,edit_document,rename_document,open_document,save_document,writer_embed_sheet,writer_embedded_put,writer_remove_embedded,writer_embedded_value,writer_embedded_to_sheets,base_snapshot_to_slides,workbook_snapshot,workbook_new,workbook_put,workbook_add_sheet,workbook_put_batch,workbook_rename_sheet,workbook_delete_sheet,workbook_value,workbook_find,workbook_statistics,workbook_open,workbook_save,deck_snapshot,deck_new,deck_add,deck_update,deck_delete,deck_duplicate,deck_move,deck_open,deck_save,base_path,base_create,base_open,base_tables,base_create_table,base_insert,base_update,base_delete,base_browse,base_select,base_import_csv,base_indexes,base_create_index,base_delete_index,base_browse_page,base_to_workbook,base_integrity_check,base_backup,base_export_table_csv,base_group_report,automation_snapshot,automation_execute]).run(tauri::generate_context!()).expect("Failed to start Koffice")}

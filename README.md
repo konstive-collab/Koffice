@@ -1,3 +1,5 @@
+> **Fusion v0.11:** Lossless Writer → Sheets extraction appends embedded worksheets without replacing existing sheets; Koffice Base → Slides adds explicitly static, bounded table snapshots. [Fusion transfers](docs/FUSION-TRANSFERS.md). No live DB/Sheets links yet.
+
 > **Koffice Fusion v0.10:** Writer now supports self-contained embedded Sheets objects with the real Rust spreadsheet engine. See [Fusion documentation](docs/FUSION.md). This is the first cross-app integration milestone, not full OLE or linked-data support.
 
 > **Project priority (v0.9):** cross-platform desktop usability, performance and reliable document editing are the primary goals. AI integrations are optional. See [Desktop v0.9 improvements and platform build guide](docs/desktop-v0.9.md).
