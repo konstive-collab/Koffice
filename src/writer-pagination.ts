@@ -193,7 +193,7 @@ export function paginateWriterBlocks(
     rowIndex++;continue;
    }
    body.lastChild?.remove();
-   if(body.rows.length || (first&&table.tHead)){
+   if(body.rows.length){
     append(chunk);
     if(!beginPage())return false;
     first=false;chunk=tableChunk();continue;
