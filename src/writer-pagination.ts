@@ -72,8 +72,9 @@ export function paginateWriterBlocks(
  source:HTMLElement,settings:WriterPage,title:string,
  onPage:(page:HTMLElement)=>void,measurement:HTMLElement
 ):WriterPagination{
- const measureBody=measurement.querySelector<HTMLElement>('.writer-preview-page-content');
- if(!measureBody)throw Error('Missing page measurement surface');
+ const foundBody=measurement.querySelector<HTMLElement>('.writer-preview-page-content');
+ if(!foundBody)throw Error('Missing page measurement surface');
+ const measureBody:HTMLElement=foundBody;
  let count=0,oversized=0,truncated=false;
  let current:ReturnType<typeof makePage>;
  let height=0;
