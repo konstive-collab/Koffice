@@ -7,6 +7,8 @@ import { FusionManagerUI, type LinkNode, type PreviewReport } from './fusion-man
 import {renderSlideFrames,renderStaticSlideFrames,wireSlideFrames,type SlideObjectFrame} from './slide-layout';
 
 type Kind='writer'|'sheets'|'slides'|'base';
+type DesktopMode=Kind|'suite';
+let desktopMode:DesktopMode='suite';
 type Doc={format:string;title:string;text:string;revision:number;embedded_objects?:EmbeddedSheet[]};
 type Book={format:string;title:string;revision:number;sheets:{name:string;cells:Record<string,string>}[]};
 type BaseSlideSource={database_path:string;table:string;clean:{title:string;body:string;notes:string}};
@@ -48,7 +50,51 @@ function toAddress(row:number,col:number){let letters='';while(col>0){col--;lett
 function parseCsv(input:string):string[][]{const rows:string[][]=[];let row:string[]=[],value='',quoted=false;for(let i=0;i<input.length;i++){const ch=input[i];if(quoted){if(ch==='\"'&&input[i+1]==='\"'){value+='\"';i++;}else if(ch==='\"'){quoted=false;}else value+=ch;}else if(ch==='\"'&&value===''){quoted=true;}else if(ch===','){row.push(value);value='';}else if(ch==='\n'||ch==='\r'){if(ch==='\r'&&input[i+1]==='\n')i++;row.push(value);value='';rows.push(row);row=[];}else value+=ch;}if(quoted)throw Error('Unclosed CSV quote');if(row.length||value){row.push(value);rows.push(row);}return rows;}
 
 const app=document.querySelector<HTMLDivElement>('#app')!;
-app.innerHTML=`<aside class="sidebar"><div class="logo"><div class="logo-mark">K</div><div><b>Koffice</b><small>COMMUNITY ALPHA</small></div></div><span class="heading">WORKSPACE</span><button class="nav" id="nav-writer">▤ &nbsp; Writer <span>Text</span></button><button class="nav" id="nav-sheets">▦ &nbsp; Sheets <span>Data</span></button><button class="nav" id="nav-slides">▣ &nbsp; Slides <span>Present</span></button><button class="nav" id="nav-base">▥ &nbsp; Base <span>Database</span></button><div class="side-foot"><div class="dot"></div><span>Running locally<br><small>${source}</small></span></div></aside><main class="main"><header class="header"><div><div class="breadcrumb">Your workspace <span> / </span> <span id="kind">Writer</span></div><div class="document-name" id="docname">Untitled</div></div><div class="version">v0.17 · OPEN SOURCE</div></header><div class="toolbar"><button id="new">＋ New</button><button id="open">↥ Open</button><button id="save">↧ Save</button><button id="saveas">Save as</button><div class="sep"></div><button id="find">Find / Replace</button><button id="fusion-center">Fusion links</button><button id="automation">Automation API</button><button id="export">Export</button><button id="print">Print / PDF</button><div class="spacer"></div><button id="toggle-compact" title="Show or hide sidebar" aria-label="Toggle sidebar">☰</button><button id="zoom-out" aria-label="Zoom out">−</button><span id="zoom-value" aria-live="polite">100%</span><button id="zoom-in" aria-label="Zoom in">＋</button><span class="status" id="status">Ready</span></div><section class="canvas" id="canvas"></section><footer><span id="details">Koffice</span><span id="location">Unsaved workspace</span><span id="rev">Revision 0</span></footer><div id="notice" role="status"></div></main>`;
+app.innerHTML=`<aside class="sidebar"><div class="logo"><div class="logo-mark">K</div><div><b>Koffice</b><small>COMMUNITY ALPHA</small></div></div><span class="heading">WORKSPACE</span><button class="nav" id="nav-writer">▤ &nbsp; Writer <span>Text</span></button><button class="nav" id="nav-sheets">▦ &nbsp; Sheets <span>Data</span></button><button class="nav" id="nav-slides">▣ &nbsp; Slides <span>Present</span></button><button class="nav" id="nav-base">▥ &nbsp; Base <span>Database</span></button><div class="side-foot"><div class="dot"></div><span>Running locally<br><small>${source}</small></span></div></aside><main class="main"><header class="header"><div><div class="breadcrumb">Your workspace <span> / </span> <span id="kind">Writer</span></div><div class="document-name" id="docname">Untitled</div></div><div class="version">v0.18 · KODI OFFICE</div></header><div class="toolbar"><button id="open-apps" title="Launch a Kodi Office application">◫ Applications</button><div class="sep"></div><button id="new">＋ New</button><button id="open">↥ Open</button><button id="save">↧ Save</button><button id="saveas">Save as</button><div class="sep"></div><button id="find">Find / Replace</button><button id="fusion-center">Fusion links</button><button id="automation">Automation API</button><button id="export">Export</button><button id="print">Print / PDF</button><div class="spacer"></div><button id="toggle-compact" title="Show or hide sidebar" aria-label="Toggle sidebar">☰</button><button id="zoom-out" aria-label="Zoom out">−</button><span id="zoom-value" aria-live="polite">100%</span><button id="zoom-in" aria-label="Zoom in">＋</button><span class="status" id="status">Ready</span></div><section class="canvas" id="canvas"></section><footer><span id="details">Koffice</span><span id="location">Unsaved workspace</span><span id="rev">Revision 0</span></footer><div id="notice" role="status"></div></main>`;
+/** Standalone editors run as different native processes, not merely tabs. */
+const appLauncher=document.createElement('div');
+appLauncher.className='desktop-launcher';
+appLauncher.id='desktop-launcher';
+appLauncher.hidden=true;
+appLauncher.innerHTML='<section class="desktop-launcher-panel" role="dialog" aria-modal="true" aria-label="Kodi Office applications">'+
+ '<header class="desktop-launcher-header"><div><div class="desktop-launcher-kicker">KODI OFFICE</div>'+
+ '<h2>Choose an application</h2><p>Each editor opens as its own desktop process and independent workspace.</p></div>'+
+ '<button id="app-launcher-close" aria-label="Close launcher">✕</button></header>'+
+ '<div class="desktop-app-grid">'+
+ '<button class="desktop-app-tile" data-launch-kind="writer"><span class="desktop-app-icon">▤</span><strong>Kodi Writer</strong><small>Documents and page editing</small></button>'+
+ '<button class="desktop-app-tile" data-launch-kind="sheets"><span class="desktop-app-icon">▦</span><strong>Kodi Sheets</strong><small>Spreadsheets and formulas</small></button>'+
+ '<button class="desktop-app-tile" data-launch-kind="slides"><span class="desktop-app-icon">▣</span><strong>Kodi Slides</strong><small>Presentations and layout</small></button>'+
+ '<button class="desktop-app-tile" data-launch-kind="base"><span class="desktop-app-icon">▥</span><strong>Kodi Base</strong><small>Relational databases</small></button></div>'+
+ '<footer class="desktop-launcher-foot"><p>Integrated Suite retains the existing Fusion workflow. Independent apps exchange saved files, not live in-memory state.</p>'+
+ '<button id="app-launcher-continue">Continue in Suite</button></footer></section>';
+document.body.append(appLauncher);
+function showAppLauncher(){appLauncher.hidden=false;appLauncher.querySelector<HTMLButtonElement>('[data-launch-kind]')?.focus();}
+function hideAppLauncher(){appLauncher.hidden=true;}
+for(const button of appLauncher.querySelectorAll<HTMLButtonElement>('[data-launch-kind]')){
+  button.onclick=()=>void run(async()=>{
+    const kind=button.dataset.launchKind as Kind;
+    const name=await invoke<string>('desktop_launch',{kind});
+    message('Launched '+name+' as a separate application');
+    hideAppLauncher();
+  });
+}
+$('app-launcher-close').onclick=hideAppLauncher;
+$('app-launcher-continue').onclick=hideAppLauncher;
+$('open-apps').onclick=showAppLauncher;
+appLauncher.addEventListener('keydown',event=>{if(event.key==='Escape'){event.stopPropagation();hideAppLauncher();}});
+function applyDesktopMode(mode:DesktopMode){
+  desktopMode=mode;
+  document.body.dataset.appMode=mode;
+  document.title=mode==='suite'?'Koffice Suite':'Kodi '+labels[mode];
+  if(mode!=='suite'){
+    active=mode;
+    $('open-apps').setAttribute('aria-label','Launch another Kodi Office application');
+    $('fusion-center').hidden=mode!=='writer';
+    $('automation').hidden=true;
+    $('find').hidden=mode!=='writer';
+  }
+}
+
 const fusion=new FusionUI(
   ()=>doc?.embedded_objects??[],
   updatesCallback,
@@ -352,7 +398,7 @@ function exportData(){if(active==='base'){base.exportCsv();return;}if(active==='
 }
 function download(blob:Blob,name:string){const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 function printFile(){if(active==='base'){message('Print is not implemented for Base yet');return;}if(active==='sheets'){message('Use Export to download a CSV file');return;}const w=window.open('','_blank');if(!w){message('Allow popups to print');return;}const content=active==='writer'?`<h1>${escapeHtml(doc.title)}</h1><div style="white-space:pre-wrap">${escapeHtml(doc.text)}</div>${fusion.exportHtml()}`:deck.slides.map(s=>`<section style="page-break-after:always"><h1>${escapeHtml(s.title)}</h1><div style="white-space:pre-wrap">${escapeHtml(s.body)}</div>${renderStaticSlideFrames(s.embedded_objects??[],s.object_frames??{},objects=>slideFusion.exportHtml(objects))}</section>`).join('');w.document.write(`<html><head><title>${escapeHtml(title())}</title><style>body{font:16px/1.6 Arial,sans-serif;padding:42px}section{min-height:80vh}@media print{body{padding:0}}</style></head><body>${content}</body></html>`);w.document.close();w.focus();w.print();}
-for(const kind of ['writer','sheets','slides','base'] as const)$(`nav-${kind}`).onclick=()=>void run(async()=>{await flush();active=kind;dirty=saved[active]!==revision();refresh();});
+for(const kind of ['writer','sheets','slides','base'] as const)$(`nav-${kind}`).onclick=()=>void run(async()=>{if(desktopMode!=='suite')return;await flush();active=kind;dirty=saved[active]!==revision();refresh();});
 function findReplace(){if(active!=='writer'){message('Find / Replace is available in Writer');return;}const needle=window.prompt('Find text',searchNeedle);if(needle===null||!needle)return;searchNeedle=needle;const el=$('text') as HTMLTextAreaElement;const idx=el.value.indexOf(needle,el.selectionEnd);const at=idx<0?el.value.indexOf(needle):idx;if(at<0){message('No matches');return;}el.focus();el.setSelectionRange(at,at+needle.length);if(!window.confirm('Replace this match? (Cancel = find only)'))return;const replacement=window.prompt('Replace with',needle);if(replacement===null)return;el.setRangeText(replacement,at,at+needle.length,'select');el.dispatchEvent(new Event('input'));}
 // The automation console is opt-in and local-only. It does not expose a network port.
 const consoleRoot=document.createElement('div');
@@ -391,10 +437,10 @@ window.addEventListener('keydown',e=>{
  if(key==='n'){e.preventDefault();void run(create);return;}
  if(key==='b'&&e.shiftKey){e.preventDefault();preferences.compact=!preferences.compact;applyPreferences();return;}
  if(key==='0'&&e.shiftKey){e.preventDefault();preferences.scale=1;applyPreferences();return;}
- if(!e.shiftKey&&['1','2','3','4'].includes(key)){
+ if(desktopMode==='suite'&&!e.shiftKey&&['1','2','3','4'].includes(key)){
    e.preventDefault();const kind=(['writer','sheets','slides','base'] as const)[Number(key)-1];
    void run(async()=>{await flush();active=kind;dirty=saved[active]!==revision();refresh();});
  }
 });
 window.addEventListener('beforeunload',e=>{if(dirty||saved.writer!==doc.revision||saved.sheets!==book.revision||saved.slides!==deck.revision)e.preventDefault();});
-void Promise.all([invoke<Doc>('snapshot'),invoke<Book>('workbook_snapshot'),invoke<Deck>('deck_snapshot')]).then(([d,b,s])=>{doc=d;book=b;deck=s;saved.writer=d.revision;saved.sheets=b.revision;saved.slides=s.revision;refresh();void base.initialize().catch(e=>message(String(e)));}).catch(e=>message(`Koffice Core unavailable: ${e}`));
+void Promise.all([invoke<Doc>('snapshot'),invoke<Book>('workbook_snapshot'),invoke<Deck>('deck_snapshot'),invoke<DesktopMode>('desktop_mode')]).then(([d,b,p,mode])=>{doc=d;book=b;deck=p;saved.writer=d.revision;saved.sheets=b.revision;saved.slides=p.revision;applyDesktopMode(mode);refresh();void base.initialize().catch(e=>message(String(e)));if(mode==='suite')showAppLauncher();}).catch(e=>message(`Koffice Core unavailable: ${e}`));

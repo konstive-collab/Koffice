@@ -1,3 +1,5 @@
+> **Koffice 0.18 — Editor Separation:** a four-product launcher starts Kodi Writer, Sheets, Slides and Base as independent native processes (each has separate in-memory document state and app-specific UI); integrated Suite remains available for cross-editor Fusion. Start directly with `koffice --app writer|sheets|slides|base`. [English guide](docs/EDITOR-SEPARATION.md). True separate installed executables and parity with mature office editors remain future work.
+
 > **Fusion v0.17:** position and resize editable Sheets tables freely inside a slide with pointer or keyboard controls. Relative geometry survives save/reopen, slide duplication and reordering; print/HTML/presentation views retain placement. [Layout guide](docs/SLIDES-LAYOUT.md).
 
 > **Fusion v0.16:** Slides now embeds fully editable native Sheets worksheets and stores their formulas and cells in `.kslide`. Embedded sheets can also be transferred back to standalone Sheets, and are included in print/HTML/presentation views. [Slides worksheet guide](docs/SLIDES-SHEETS.md). AI remains optional.
