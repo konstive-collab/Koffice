@@ -72,3 +72,35 @@ button:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px soli
 .fusion-grid td input:focus{background:#2a4c39;outline:2px solid #80c29b}
 .fusion-help{font-size:11px;line-height:1.5;color:#a1b1a6;padding:10px 15px;border-top:1px solid #35443a}
 @media(max-width:650px){.fusion-overlay:not([hidden]){padding:5px}.fusion-panel{height:96vh}.fusion-toolbar{padding:8px}.fusion-toolbar strong{width:100%}.fusion-embed-head span{width:100%}}
+
+
+/* Fusion Link Center: compact graph table and explicit batch verification. */
+.fusion-manager-overlay[hidden]{display:none}
+.fusion-manager-overlay:not([hidden]){position:fixed;inset:0;background:rgba(5,10,8,.82);z-index:120;display:grid;place-items:center;padding:16px}
+.fusion-manager-panel{background:#171d1b;border:1px solid #46584f;border-radius:14px;width:min(1100px,98vw);max-height:90vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 16px 64px #000b}
+.fusion-manager-header{padding:20px 22px;border-bottom:1px solid #33423a;display:flex;align-items:center;justify-content:space-between;gap:14px}
+.fusion-manager-header h2{font-size:19px;margin:0 0 5px;color:#f0f6f1}
+.fusion-manager-header p{margin:0;color:#b5c6b8;font-size:12px}
+.fusion-manager-header button,.fusion-manager-actions button,.fusion-manager-results button{border:1px solid #51715a;border-radius:7px;background:#283a30;color:#edf6ef;padding:9px 12px;cursor:pointer}
+.fusion-manager-header button:focus-visible,.fusion-manager-actions button:focus-visible,.fusion-manager-results button:focus-visible{outline:2px solid #8ae4ad;outline-offset:2px}
+.fusion-manager-body{overflow:auto;padding:16px 22px;min-height:0}
+.fusion-manager-help{color:#aabfb0;font-size:12px;line-height:1.6;margin:0 0 16px}
+.fusion-manager-table{overflow:auto;border:1px solid #35443c;border-radius:8px}
+.fusion-manager-table table{border-collapse:collapse;width:100%;font-size:12px}
+.fusion-manager-table th,.fusion-manager-table td{border-bottom:1px solid #35443c;text-align:left;padding:10px 9px;vertical-align:top}
+.fusion-manager-table th{background:#28362e;position:sticky;top:0;color:#cbe1d1}
+.fusion-manager-table td{color:#d6e2d8}
+.fusion-manager-source{max-width:320px;overflow-wrap:anywhere;color:#b7c3bd}
+.fusion-manager-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:16px 0}
+.fusion-manager-actions span{color:#9caf9f;font-size:12px}
+.fusion-manager-actions button:disabled,.fusion-manager-results button:disabled{opacity:.45;cursor:not-allowed}
+.fusion-manager-results{border-top:1px solid #35443c;padding:14px 0}
+.fusion-manager-results h3{font-size:15px;margin:0 0 14px}
+.fusion-preview-row{padding:11px 12px;margin-bottom:8px;border:1px solid #425147;border-radius:8px}
+.fusion-preview-row b{display:inline-block;margin-right:10px}
+.fusion-preview-row span{font-size:12px;color:#9bc4aa}
+.fusion-preview-row p{font-size:12px;color:#bdccbf;margin:6px 0 0}
+.fusion-preview-row details{padding-top:8px;font-size:12px}
+.fusion-preview-row ul{padding-left:18px;overflow-wrap:anywhere}
+.fusion-preview-row li{margin:5px 0}
+@media(max-width:650px){.fusion-manager-overlay:not([hidden]){padding:4px}.fusion-manager-panel{max-height:99vh}.fusion-manager-header{padding:10px}.fusion-manager-body{padding:10px}.fusion-manager-table th,.fusion-manager-table td{padding:7px 5px;min-width:92px}}

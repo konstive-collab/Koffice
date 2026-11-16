@@ -1,8 +1,8 @@
 [package]
 name = "koffice"
-version = "0.13.0-alpha.1"
+version = "0.14.0-alpha.1"
 default-run = "koffice"
-description = "Koffice AI-native office suite"
+description = "Koffice cross-platform office suite"
 authors = ["Koffice contributors"]
 license = "MIT"
 edition = "2021"

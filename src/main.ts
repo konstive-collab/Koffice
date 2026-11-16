@@ -3,6 +3,7 @@ import { open, save } from '@tauri-apps/plugin-dialog';
 import './style.css';
 import { BaseUI } from './base-ui';
 import { FusionUI, type EmbeddedSheet } from './fusion-ui';
+import { FusionManagerUI, type LinkNode, type PreviewReport } from './fusion-manager-ui';
 
 type Kind='writer'|'sheets'|'slides'|'base';
 type Doc={format:string;title:string;text:string;revision:number;embedded_objects?:EmbeddedSheet[]};
@@ -45,7 +46,7 @@ function toAddress(row:number,col:number){let letters='';while(col>0){col--;lett
 function parseCsv(input:string):string[][]{const rows:string[][]=[];let row:string[]=[],value='',quoted=false;for(let i=0;i<input.length;i++){const ch=input[i];if(quoted){if(ch==='\"'&&input[i+1]==='\"'){value+='\"';i++;}else if(ch==='\"'){quoted=false;}else value+=ch;}else if(ch==='\"'&&value===''){quoted=true;}else if(ch===','){row.push(value);value='';}else if(ch==='\n'||ch==='\r'){if(ch==='\r'&&input[i+1]==='\n')i++;row.push(value);value='';rows.push(row);row=[];}else value+=ch;}if(quoted)throw Error('Unclosed CSV quote');if(row.length||value){row.push(value);rows.push(row);}return rows;}
 
 const app=document.querySelector<HTMLDivElement>('#app')!;
-app.innerHTML=`<aside class="sidebar"><div class="logo"><div class="logo-mark">K</div><div><b>Koffice</b><small>COMMUNITY ALPHA</small></div></div><span class="heading">WORKSPACE</span><button class="nav" id="nav-writer">▤ &nbsp; Writer <span>Text</span></button><button class="nav" id="nav-sheets">▦ &nbsp; Sheets <span>Data</span></button><button class="nav" id="nav-slides">▣ &nbsp; Slides <span>Present</span></button><button class="nav" id="nav-base">▥ &nbsp; Base <span>Database</span></button><div class="side-foot"><div class="dot"></div><span>Running locally<br><small>${source}</small></span></div></aside><main class="main"><header class="header"><div><div class="breadcrumb">Your workspace <span> / </span> <span id="kind">Writer</span></div><div class="document-name" id="docname">Untitled</div></div><div class="version">v0.13 · OPEN SOURCE</div></header><div class="toolbar"><button id="new">＋ New</button><button id="open">↥ Open</button><button id="save">↧ Save</button><button id="saveas">Save as</button><div class="sep"></div><button id="find">Find / Replace</button><button id="automation">Automation API</button><button id="export">Export</button><button id="print">Print / PDF</button><div class="spacer"></div><button id="toggle-compact" title="Show or hide sidebar" aria-label="Toggle sidebar">☰</button><button id="zoom-out" aria-label="Zoom out">−</button><span id="zoom-value" aria-live="polite">100%</span><button id="zoom-in" aria-label="Zoom in">＋</button><span class="status" id="status">Ready</span></div><section class="canvas" id="canvas"></section><footer><span id="details">Koffice</span><span id="location">Unsaved workspace</span><span id="rev">Revision 0</span></footer><div id="notice" role="status"></div></main>`;
+app.innerHTML=`<aside class="sidebar"><div class="logo"><div class="logo-mark">K</div><div><b>Koffice</b><small>COMMUNITY ALPHA</small></div></div><span class="heading">WORKSPACE</span><button class="nav" id="nav-writer">▤ &nbsp; Writer <span>Text</span></button><button class="nav" id="nav-sheets">▦ &nbsp; Sheets <span>Data</span></button><button class="nav" id="nav-slides">▣ &nbsp; Slides <span>Present</span></button><button class="nav" id="nav-base">▥ &nbsp; Base <span>Database</span></button><div class="side-foot"><div class="dot"></div><span>Running locally<br><small>${source}</small></span></div></aside><main class="main"><header class="header"><div><div class="breadcrumb">Your workspace <span> / </span> <span id="kind">Writer</span></div><div class="document-name" id="docname">Untitled</div></div><div class="version">v0.14 · OPEN SOURCE</div></header><div class="toolbar"><button id="new">＋ New</button><button id="open">↥ Open</button><button id="save">↧ Save</button><button id="saveas">Save as</button><div class="sep"></div><button id="find">Find / Replace</button><button id="fusion-center">Fusion links</button><button id="automation">Automation API</button><button id="export">Export</button><button id="print">Print / PDF</button><div class="spacer"></div><button id="toggle-compact" title="Show or hide sidebar" aria-label="Toggle sidebar">☰</button><button id="zoom-out" aria-label="Zoom out">−</button><span id="zoom-value" aria-live="polite">100%</span><button id="zoom-in" aria-label="Zoom in">＋</button><span class="status" id="status">Ready</span></div><section class="canvas" id="canvas"></section><footer><span id="details">Koffice</span><span id="location">Unsaved workspace</span><span id="rev">Revision 0</span></footer><div id="notice" role="status"></div></main>`;
 const fusion=new FusionUI(
   ()=>doc?.embedded_objects??[],
   updatesCallback,
@@ -139,6 +140,17 @@ async function updatesCallback(id:string,updates:Record<string,string>){
     }
   });
 }
+// One shared cross-app link center. Inventory never accesses file paths.
+const fusionManager=new FusionManagerUI(
+  ()=>invoke<LinkNode[]>('fusion_graph'),
+  ids=>invoke<PreviewReport>('fusion_preview_refresh',{objectIds:ids}),
+  async report=>{
+    await flush();
+    doc=await invoke<Doc>('fusion_apply_refresh',{token:report.token,expectedRevision:report.expected_revision});
+    active='writer';syncDirty();refresh();
+  },
+  message
+);
 const base = new BaseUI(message,()=>refresh(),async(table)=>{
   if (saved.sheets!==book.revision && !window.confirm('Replace the unsaved Sheets workbook with the database snapshot?')) return;
   const next=await invoke<Book>('base_to_workbook',{table});
@@ -260,6 +272,7 @@ const automationInput=()=>$('automation-input') as HTMLTextAreaElement;
 const automationOutput=()=>$('automation-output');
 const example=()=>({operations:[{type:'sheets_put_batch',expected_revision:book.revision,sheet:sheetIndex,updates:{A1:'Koffice',B1:'AI-ready'}}]});
 async function openAutomation(){await flush();consoleRoot.hidden=false;automationInput().value=JSON.stringify(example(),null,2);const state=await invoke('automation_snapshot');automationOutput().textContent=JSON.stringify(state,null,2).slice(0,15000);automationInput().focus();}
+$('fusion-center').onclick=()=>void run(async()=>{await flush();await fusionManager.open();});
 $('automation').onclick=()=>void run(openAutomation);
 $('automation-close').onclick=()=>{consoleRoot.hidden=true;};
 $('automation-snapshot').onclick=()=>void run(async()=>{automationOutput().textContent=JSON.stringify(await invoke('automation_snapshot'),null,2).slice(0,15000);});
