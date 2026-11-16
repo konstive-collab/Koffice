@@ -10,6 +10,8 @@ In Writer select **Insert Sheets table**. Choose either:
 
 The embedded table appears below Writer's text in the document page. Click **Edit** to open the Sheets cell grid inside Writer. Edits and pasted TSV ranges use the **same Rust SheetBook::put_batch** transaction logic as standalone Sheets. Formula text and full cells are retained, even outside the preview. Use **Go to cell** to navigate addresses A1–ZZ10000. The editor displays a limited viewport for performance.
 
+HTML export and print include a **static rendering of embedded tables** (with formula expressions as stored). Large sparse sheets export as address/value rows instead of a giant mostly empty rectangle. Only the native .kdoc preserves editability.
+
 The complete embedded worksheet is saved **inside the same .kdoc**. No sidecar spreadsheet is needed. Opening an older Koffice .kdoc (without the new optional embedded_objects field) still works. The original independent Sheets workbook is **not** changed by editing its embedded copy.
 
 For formula evaluation, the embedded editor uses the same Sheets evaluation rules. Unsupported formulas remain unsupported: this is not Excel-compatible calculation.

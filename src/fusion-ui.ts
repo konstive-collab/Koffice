@@ -27,6 +27,25 @@ export class FusionUI{
    return '<section class="fusion-embed"><div class="fusion-embed-head"><strong>'+esc(o.label)+'</strong><span>'+Object.keys(cells).length+' cells · Sheets engine</span><button data-fusion-edit="'+esc(o.id)+'">Edit</button><button data-fusion-remove="'+esc(o.id)+'">Remove</button></div><div class="fusion-preview"><table><thead><tr>'+cols.map(c=>'<th>'+c+'</th>').join('')+'</tr></thead><tbody>'+grid+'</tbody></table></div></section>';
   }).join('');
  }
+ /** Static printable view with complete cell content. Large sparse sheets use address/value listings. */
+ exportHtml():string{
+  return this.getObjects().map(obj=>{
+   const cells=obj.workbook.sheets[0].cells;
+   const entries=Object.entries(cells);
+   const maxRow=entries.reduce((n,[a])=>Math.max(n,Number(a.match(/\d+$/)?.[0]??0)),0);
+   const maxCol=entries.reduce((n,[a])=>Math.max(n,[...(a.match(/^[A-Z]+/)?.[0]??'A')].reduce((v,c)=>v*26+c.charCodeAt(0)-64,0)),0);
+   let table='';
+   if(maxRow*maxCol<=10000){
+    const cols=Array.from({length:maxCol||1},(_,i)=>column(i+1));
+    const header='<thead><tr><th></th>'+cols.map(x=>'<th>'+x+'</th>').join('')+'</tr></thead>';
+    const rows=Array.from({length:maxRow||1},(_,i)=>'<tr><th>'+String(i+1)+'</th>'+cols.map(c=>'<td>'+esc(cells[c+(i+1)]??'')+'</td>').join('')+'</tr>').join('');
+    table=header+'<tbody>'+rows+'</tbody>';
+   }else{
+    table='<thead><tr><th>Cell address</th><th>Value / formula</th></tr></thead><tbody>'+entries.map(([a,v])=>'<tr><th>'+esc(a)+'</th><td>'+esc(v)+'</td></tr>').join('')+'</tbody>';
+   }
+   return '<section style="page-break-inside:avoid;margin:2em 0"><h2>'+esc(obj.label)+'</h2><p>Embedded Koffice Sheets table (formula expressions shown as stored)</p><div style="overflow:auto"><table style="border-collapse:collapse;font:12px sans-serif">'+table+'</table></div></section>';
+  }).join('');
+ }
  wirePreview(){
   document.querySelectorAll<HTMLButtonElement>('[data-fusion-edit]').forEach(b=>b.onclick=()=>this.open(b.dataset.fusionEdit!));
   document.querySelectorAll<HTMLButtonElement>('[data-fusion-remove]').forEach(b=>b.onclick=()=>{
