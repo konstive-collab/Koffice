@@ -1,3 +1,5 @@
+> **Koffice 0.22 — smarter Writer page layout:** split long paragraphs across preview pages while preserving inline formatting, and split tables at row boundaries with repeated THEAD headers. This is a read-only preview; the editor remains continuous. [Details](docs/WRITER-PAGINATION-V22.md).
+
 > **Koffice 0.21 — paginated Writer preview:** a read-only, measured page view with header/footer, A4/Letter/Legal, zoom and page navigation. Unsaved text and selection remain in the original editor. Oversize blocks are identified rather than truncated from the document. [Read more](docs/WRITER-PAGINATION.md).
 
 > **Koffice 0.20 — Writer page setup:** persistent A4/Letter/Legal page sizes, orientation, margins, header/footer text and explicit manual page breaks. Printing and HTML export now receive page CSS. [Documentation](docs/WRITER-PAGES.md). Automatic pagination and repeating per-page headers remain unimplemented.

@@ -291,3 +291,15 @@ body[data-app-mode]:not([data-app-mode="suite"]) .nav{display:none}
  .writer-pages-heading{width:100%;margin-right:0}
  .writer-pages-scroll{justify-content:flex-start}
 }
+
+/* v0.22: paragraph and table-row pagination preview */
+.writer-preview-page-content p,
+.writer-preview-page-content blockquote,
+.writer-preview-page-content h1,
+.writer-preview-page-content h2,
+.writer-preview-page-content h3{overflow-wrap:anywhere}
+.writer-preview-page-content table{border-collapse:collapse;width:100%;table-layout:fixed}
+.writer-preview-page-content thead{display:table-header-group}
+.writer-preview-page-content tr{break-inside:avoid;page-break-inside:avoid}
+.writer-preview-page-content td,.writer-preview-page-content th{overflow-wrap:anywhere;vertical-align:top}
+.writer-page-overflow .writer-preview-page-content{scrollbar-width:thin}
