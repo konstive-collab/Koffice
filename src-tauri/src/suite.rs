@@ -177,6 +177,17 @@ impl SheetBook {
         }
         Ok(())
     }
+    /// Restore a validated snapshot as a fresh monotonic revision.
+    /// Used only by the session-local Undo/Redo controller.
+    pub fn restore_snapshot(&mut self,expected:u64,snapshot:SheetBook)->Result<(),String>{
+        check_revision(self.revision,expected)?;
+        snapshot.validate()?;
+        let mut next=snapshot;
+        next.revision=self.revision.checked_add(1).ok_or("Revision overflow")?;
+        next.validate()?;
+        *self=next;
+        Ok(())
+    }
     pub fn style_cells(&mut self,expected:u64,sheet:usize,updates:BTreeMap<String,Option<CellStyle>>)->Result<(),String>{
         check_revision(self.revision,expected)?;
         if updates.is_empty()||updates.len()>5_000{return Err("Style update requires 1–5,000 cells".into());}
@@ -515,6 +526,19 @@ pub fn save_json<T:Serialize>(path:&Path,object:&T)->Result<(),String> {
    book.put(2,0,"C1".into(),"text".into()).unwrap();
    book.put(3,0,"D1".into(),"=C1*2".into()).unwrap();
    assert!(book.value(0,"D1").unwrap_err().contains("not a number"));
+ }
+ #[test] fn workbook_restore_snapshot_is_revision_guarded_and_atomic(){
+    let mut b=SheetBook::blank();let original=b.clone();
+    b.put(0,0,"A1".into(),"Updated".into()).unwrap();
+    b.restore_snapshot(1,original).unwrap();
+    assert_eq!(b.revision,2);
+    assert!(!b.sheets[0].cells.contains_key("A1"));
+    let previous=b.clone();
+    assert!(b.restore_snapshot(1,previous.clone()).is_err());
+    let mut invalid=previous.clone();
+    invalid.sheets[0].name="".into();
+    assert!(b.restore_snapshot(2,invalid).is_err());
+    assert_eq!(b,previous);
  }
  #[test] fn cell_style_and_freeze_roundtrip_and_legacy(){
     let mut b=SheetBook::blank();

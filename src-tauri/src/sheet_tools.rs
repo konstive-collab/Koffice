@@ -60,28 +60,40 @@ pub fn sort_range(book:&mut SheetBook,expected:u64,index:usize,range:&str,by:&st
     let cells=sheet(book,index)?;
     let start=rect.top+usize::from(header);
     if start>rect.bottom{return Err("No data rows to sort".into());}
-    let mut rows:Vec<(usize,Vec<String>)>=(start..=rect.bottom).map(|row|{
-        (row,(rect.left..=rect.right).map(|col|cells.get(&cell(row,col)).cloned().unwrap_or_default()).collect())
+    let styles=&book.sheets[index].styles;
+    // Keep values and per-cell style records together when sorting.
+    let mut rows:Vec<(Vec<String>,Vec<Option<crate::suite::CellStyle>>)>=(start..=rect.bottom).map(|row|{
+        ((rect.left..=rect.right).map(|col|cells.get(&cell(row,col)).cloned().unwrap_or_default()).collect(),
+         (rect.left..=rect.right).map(|col|styles.get(&cell(row,col)).cloned()).collect())
     }).collect();
-    if rows.iter().flat_map(|(_,row)|row.iter()).any(|value|value.starts_with('=')){
+    if rows.iter().flat_map(|(row,_)|row.iter()).any(|value|value.starts_with('=')){
         return Err("Cannot sort formulas safely. Copy or convert formulas to values first".into());
     }
     let offset=keycol-rect.left;
     rows.sort_by(|a,b|{
-        let a=&a.1[offset];let b=&b.1[offset];
+        let a=&a.0[offset];let b=&b.0[offset];
         let comparison=match (a.parse::<f64>(),b.parse::<f64>()){
             (Ok(x),Ok(y)) if x.is_finite()&&y.is_finite()=>x.total_cmp(&y),
             _=>a.to_lowercase().cmp(&b.to_lowercase()),
         };
         if ascending{comparison}else{comparison.reverse()}
     });
-    let mut updates=BTreeMap::new();
-    for (position,(_,values)) in rows.iter().enumerate(){
+    let mut next=book.clone();
+    let tab=next.sheets.get_mut(index).ok_or("Sheet not found")?;
+    for (position,(values,styles)) in rows.iter().enumerate(){
         for (i,value) in values.iter().enumerate(){
-            updates.insert(cell(start+position,rect.left+i),value.clone());
+            let address=cell(start+position,rect.left+i);
+            if value.is_empty(){tab.cells.remove(&address);}else{tab.cells.insert(address.clone(),value.clone());}
+            match &styles[i]{
+                Some(style)=>{tab.styles.insert(address,style.clone());},
+                None=>{tab.styles.remove(&address);},
+            }
         }
     }
-    apply(book,expected,index,updates)
+    next.revision=next.revision.checked_add(1).ok_or("Revision overflow")?;
+    next.validate()?;
+    *book=next;
+    Ok(())
 }
 /// Fill an entire row or column with a numeric arithmetic progression.
 pub fn fill_series(book:&mut SheetBook,expected:u64,index:usize,range:&str,start:f64,step:f64)->Result<(),String>{
@@ -162,6 +174,20 @@ mod tests{
   assert_eq!(c["A1"],"Name");assert_eq!(c["A2"],"Cal");assert_eq!(c["A3"],"Bob");assert_eq!(c["A4"],"Ada");
   assert_eq!(c["B2"],"2");assert_eq!(c["B4"],"10");
   assert_eq!(book.revision,2);
+ }
+ #[test]fn sort_moves_formats_with_rows_and_clears_missing_style(){
+  use crate::suite::CellStyle;
+  let mut b=seed();
+  let mut updates=BTreeMap::new();
+  updates.insert("A3".into(),Some(CellStyle{bold:true,italic:false,align:"center".into(),fill:"green".into()}));
+  updates.insert("A4".into(),Some(CellStyle{bold:false,italic:true,align:"left".into(),fill:"yellow".into()}));
+  b.style_cells(1,0,updates).unwrap();
+  sort_range(&mut b,2,0,"A1:B4","B",true,true).unwrap();
+  let sheet=&b.sheets[0];
+  assert_eq!(sheet.cells["A2"],"Cal");
+  assert_eq!(sheet.styles["A2"].fill,"yellow");
+  assert_eq!(sheet.styles["A4"].fill,"green");
+  assert!(!sheet.styles.contains_key("A3"));
  }
  #[test]fn sort_is_atomic_rejects_formulas_and_wrong_revisions(){
   let mut book=seed();book.put(1,0,"B4".into(),"=B2*2".into()).unwrap();

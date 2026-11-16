@@ -1,3 +1,5 @@
+> **Koffice 0.26 — Sheets Undo/Redo and formatting-safe sort:** session-local snapshot history for up to 20 edits, guarded native restore, and row sorting that moves cell formatting together with data. [Guide](docs/SHEETS-HISTORY.md).
+
 > **Koffice 0.25 — Sheets styles and freeze panes:** apply persistent bold/italic/alignment/background to bounded ranges and pin the first rows or columns in the grid. [Guide](docs/SHEETS-STYLING.md).
 
 > **Koffice v0.24 — Sheets interactions:** a temporary row filter, click/Shift-click range selection, TSV clipboard copying, and transaction-safe text replacement in native Sheets. [Guide](docs/SHEETS-INTERACTIONS.md).

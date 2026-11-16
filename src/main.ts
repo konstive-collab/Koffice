@@ -29,7 +29,37 @@ const paths:Record<Kind,string|null>={writer:null,sheets:null,slides:null,base:n
 const saved:Record<Kind,number>={writer:0,sheets:0,slides:0,base:0};
 let dirty=false;
 let queue=Promise.resolve();
-const run=(fn:()=>Promise<void>)=>{queue=queue.then(fn).catch(e=>message(String(e)));return queue;};
+const sheetPast:Book[]=[];
+const sheetFuture:Book[]=[];
+let sheetHistoryEpoch=0;
+function clearSheetHistory(){sheetPast.length=0;sheetFuture.length=0;sheetHistoryEpoch++;}
+const run=(fn:()=>Promise<void>,trackSheets=true)=>{
+ queue=queue.then(async()=>{
+  const before=trackSheets&&active==='sheets'&&book?book:null;
+  const epoch=sheetHistoryEpoch;
+  await fn();
+  if(before&&sheetHistoryEpoch===epoch&&book!==before&&book.revision!==before.revision){
+   sheetPast.push(before);
+   if(sheetPast.length>20)sheetPast.shift();
+   sheetFuture.length=0;
+  }
+ }).catch(e=>message(String(e)));
+ return queue;
+};
+async function historyStep(direction:'undo'|'redo'){
+ const from=direction==='undo'?sheetPast:sheetFuture;
+ const to=direction==='undo'?sheetFuture:sheetPast;
+ if(!from.length){message('No '+direction+' history for this workbook');return;}
+ const snapshot=from.pop()!;
+ const before=book;
+ try{
+  book=await invoke<Book>('workbook_restore_snapshot',{expectedRevision:book.revision,snapshot});
+  to.push(before);
+  if(to.length>20)to.shift();
+  syncDirty();refresh();message(direction==='undo'?'Sheets change undone':'Sheets change restored');
+ }catch(error){from.push(snapshot);throw error;}
+}
+
 const $=(id:string)=>document.getElementById(id)!;
 const escapeHtml=(s:string)=>s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
 const revision=()=>active==='writer'?doc.revision:active==='sheets'?book.revision:active==='slides'?deck.revision:0;
@@ -60,7 +90,7 @@ function toAddress(row:number,col:number){let letters='';while(col>0){col--;lett
 function parseCsv(input:string):string[][]{const rows:string[][]=[];let row:string[]=[],value='',quoted=false;for(let i=0;i<input.length;i++){const ch=input[i];if(quoted){if(ch==='\"'&&input[i+1]==='\"'){value+='\"';i++;}else if(ch==='\"'){quoted=false;}else value+=ch;}else if(ch==='\"'&&value===''){quoted=true;}else if(ch===','){row.push(value);value='';}else if(ch==='\n'||ch==='\r'){if(ch==='\r'&&input[i+1]==='\n')i++;row.push(value);value='';rows.push(row);row=[];}else value+=ch;}if(quoted)throw Error('Unclosed CSV quote');if(row.length||value){row.push(value);rows.push(row);}return rows;}
 
 const app=document.querySelector<HTMLDivElement>('#app')!;
-app.innerHTML=`<aside class="sidebar"><div class="logo"><div class="logo-mark">K</div><div><b>Koffice</b><small>COMMUNITY ALPHA</small></div></div><span class="heading">WORKSPACE</span><button class="nav" id="nav-writer">▤ &nbsp; Writer <span>Text</span></button><button class="nav" id="nav-sheets">▦ &nbsp; Sheets <span>Data</span></button><button class="nav" id="nav-slides">▣ &nbsp; Slides <span>Present</span></button><button class="nav" id="nav-base">▥ &nbsp; Base <span>Database</span></button><div class="side-foot"><div class="dot"></div><span>Running locally<br><small>${source}</small></span></div></aside><main class="main"><header class="header"><div><div class="breadcrumb">Your workspace <span> / </span> <span id="kind">Writer</span></div><div class="document-name" id="docname">Untitled</div></div><div class="version">v0.21 · KODI OFFICE</div></header><div class="toolbar"><button id="open-apps" title="Launch a Kodi Office application">◫ Applications</button><div class="sep"></div><button id="new">＋ New</button><button id="open">↥ Open</button><button id="save">↧ Save</button><button id="saveas">Save as</button><div class="sep"></div><button id="find">Find / Replace</button><button id="fusion-center">Fusion links</button><button id="automation">Automation API</button><button id="export">Export</button><button id="print">Print / PDF</button><div class="spacer"></div><button id="toggle-compact" title="Show or hide sidebar" aria-label="Toggle sidebar">☰</button><button id="zoom-out" aria-label="Zoom out">−</button><span id="zoom-value" aria-live="polite">100%</span><button id="zoom-in" aria-label="Zoom in">＋</button><span class="status" id="status">Ready</span></div><section class="canvas" id="canvas"></section><footer><span id="details">Koffice</span><span id="location">Unsaved workspace</span><span id="rev">Revision 0</span></footer><div id="notice" role="status"></div></main>`;
+app.innerHTML=`<aside class="sidebar"><div class="logo"><div class="logo-mark">K</div><div><b>Koffice</b><small>COMMUNITY ALPHA</small></div></div><span class="heading">WORKSPACE</span><button class="nav" id="nav-writer">▤ &nbsp; Writer <span>Text</span></button><button class="nav" id="nav-sheets">▦ &nbsp; Sheets <span>Data</span></button><button class="nav" id="nav-slides">▣ &nbsp; Slides <span>Present</span></button><button class="nav" id="nav-base">▥ &nbsp; Base <span>Database</span></button><div class="side-foot"><div class="dot"></div><span>Running locally<br><small>${source}</small></span></div></aside><main class="main"><header class="header"><div><div class="breadcrumb">Your workspace <span> / </span> <span id="kind">Writer</span></div><div class="document-name" id="docname">Untitled</div></div><div class="version">v0.26 · KODI OFFICE</div></header><div class="toolbar"><button id="open-apps" title="Launch a Kodi Office application">◫ Applications</button><div class="sep"></div><button id="new">＋ New</button><button id="open">↥ Open</button><button id="save">↧ Save</button><button id="saveas">Save as</button><div class="sep"></div><button id="find">Find / Replace</button><button id="fusion-center">Fusion links</button><button id="automation">Automation API</button><button id="export">Export</button><button id="print">Print / PDF</button><div class="spacer"></div><button id="toggle-compact" title="Show or hide sidebar" aria-label="Toggle sidebar">☰</button><button id="zoom-out" aria-label="Zoom out">−</button><span id="zoom-value" aria-live="polite">100%</span><button id="zoom-in" aria-label="Zoom in">＋</button><span class="status" id="status">Ready</span></div><section class="canvas" id="canvas"></section><footer><span id="details">Koffice</span><span id="location">Unsaved workspace</span><span id="rev">Revision 0</span></footer><div id="notice" role="status"></div></main>`;
 /** Standalone editors run as different native processes, not merely tabs. */
 const appLauncher=document.createElement('div');
 appLauncher.className='desktop-launcher';
@@ -315,7 +345,7 @@ function renderCanvas(){
    const cols=visibleCols.map(colName);
    const filteredRows=sheetFilter?.sheet===sheetIndex?matchingRows(b.cells,sheetFilter):null;
    const displayedRows=filteredRows?filteredRows.slice(sheetFilterOffset,sheetFilterOffset+gridViewport.rows):gridRows(gridViewport.row,gridViewport.rows,freeze.rows);
-   $('canvas').innerHTML=`<div class="sheet-pane"><div class="sheet-head"><b>Spreadsheet</b><span>Grid: 10,000 rows × 702 columns</span><button id="sheet-go-to">Go to cell</button><button id="sheet-sort">Sort range</button><button id="sheet-fill">Fill series</button><button id="sheet-clear">Clear range</button><button id="sheet-replace">Replace text</button><button id="sheet-filter">Filter rows</button><button id="sheet-filter-clear" title="Remove row filter">Show all</button><button id="sheet-copy">Copy range</button><button id="sheet-style">Format cells</button><button id="sheet-freeze">Freeze panes</button><button id="import-csv">Import CSV</button><button id="find-cells">Find cells</button><button id="sheet-stats">Analyze</button><button id="rename-sheet">Rename</button><button id="delete-sheet">Delete</button><button id="add-sheet">＋ Add sheet</button><input id="csv-picker" type="file" accept=".csv,text/csv" hidden></div><div class="grid-scroll"><table class="grid"><thead><tr><th class="rowhead"></th>${cols.map(c=>`<th>${c}</th>`).join('')}</tr></thead><tbody>${displayedRows.map(row=>`<tr><th class="rowhead">${row}</th>${cols.map(c=>`<td class="${[isSelected(sheetSelection,sheetIndex,c+row)?'selected-cell':'',styleClass(b.styles?.[c+row]),(!filteredRows&&freeze.rows>0&&row<=freeze.rows)?'frozen-row':'',(!filteredRows&&freeze.cols>0&&visibleCols[cols.indexOf(c)]<=freeze.cols)?'frozen-col':''].filter(Boolean).join(' ')}"><input spellcheck="false" data-address="${c}${row}" value="${escapeHtml(b.cells[`${c}${row}`]??'')}" aria-label="${c}${row}"></td>`).join('')}</tr>`).join('')}</tbody></table></div><div class="sheet-navigation"><button id="sheet-prev-cols">◀ Columns</button><button id="sheet-next-cols">Columns ▶</button><button id="sheet-prev-rows">▲ Rows</button><button id="sheet-next-rows">Rows ▼</button><span id="sheet-selection-label">${sheetSelection?.sheet===sheetIndex?selectedRect(sheetSelection).range:'Click a cell, Shift+click to select a rectangle'}</span><span>${filteredRows?`${filteredRows.length} matching rows`:`${cols[0]}${gridViewport.row}–${cols[cols.length-1]}${Math.min(10000,gridViewport.row+gridViewport.rows-1)}`}</span></div><div class="tabs">${book.sheets.map((s,i)=>`<button data-tab="${i}" class="${i===sheetIndex?'current':''}">${escapeHtml(s.name)}</button>`).join('')}</div></div>`;
+   $('canvas').innerHTML=`<div class="sheet-pane"><div class="sheet-head"><b>Spreadsheet</b><span>Grid: 10,000 rows × 702 columns</span><button id="sheet-go-to">Go to cell</button><button id="sheet-sort">Sort range</button><button id="sheet-fill">Fill series</button><button id="sheet-clear">Clear range</button><button id="sheet-replace">Replace text</button><button id="sheet-filter">Filter rows</button><button id="sheet-filter-clear" title="Remove row filter">Show all</button><button id="sheet-copy">Copy range</button><button id="sheet-undo" title="Undo last Sheets operation (Ctrl+Z)">↶ Undo</button><button id="sheet-redo" title="Redo last Sheets operation (Ctrl+Y)">↷ Redo</button><button id="sheet-style">Format cells</button><button id="sheet-freeze">Freeze panes</button><button id="import-csv">Import CSV</button><button id="find-cells">Find cells</button><button id="sheet-stats">Analyze</button><button id="rename-sheet">Rename</button><button id="delete-sheet">Delete</button><button id="add-sheet">＋ Add sheet</button><input id="csv-picker" type="file" accept=".csv,text/csv" hidden></div><div class="grid-scroll"><table class="grid"><thead><tr><th class="rowhead"></th>${cols.map(c=>`<th>${c}</th>`).join('')}</tr></thead><tbody>${displayedRows.map(row=>`<tr><th class="rowhead">${row}</th>${cols.map(c=>`<td class="${[isSelected(sheetSelection,sheetIndex,c+row)?'selected-cell':'',styleClass(b.styles?.[c+row]),(!filteredRows&&freeze.rows>0&&row<=freeze.rows)?'frozen-row':'',(!filteredRows&&freeze.cols>0&&visibleCols[cols.indexOf(c)]<=freeze.cols)?'frozen-col':''].filter(Boolean).join(' ')}"><input spellcheck="false" data-address="${c}${row}" value="${escapeHtml(b.cells[`${c}${row}`]??'')}" aria-label="${c}${row}"></td>`).join('')}</tr>`).join('')}</tbody></table></div><div class="sheet-navigation"><button id="sheet-prev-cols">◀ Columns</button><button id="sheet-next-cols">Columns ▶</button><button id="sheet-prev-rows">▲ Rows</button><button id="sheet-next-rows">Rows ▼</button><span id="sheet-selection-label">${sheetSelection?.sheet===sheetIndex?selectedRect(sheetSelection).range:'Click a cell, Shift+click to select a rectangle'}</span><span>${filteredRows?`${filteredRows.length} matching rows`:`${cols[0]}${gridViewport.row}–${cols[cols.length-1]}${Math.min(10000,gridViewport.row+gridViewport.rows-1)}`}</span></div><div class="tabs">${book.sheets.map((s,i)=>`<button data-tab="${i}" class="${i===sheetIndex?'current':''}">${escapeHtml(s.name)}</button>`).join('')}</div></div>`;
    $('details').textContent=`${book.sheets.length} sheets · ${Object.keys(b.cells).length} filled cells`;
    $('sheet-go-to').onclick=()=>{
      const target=window.prompt('Go to cell (A1 ... ZZ10000)',cols[0]+gridViewport.row);
@@ -337,6 +367,8 @@ function renderCanvas(){
      }else gridViewport=nextViewport(gridViewport,dr,dc);
      refresh();
    };}
+   $('sheet-undo').onclick=()=>void run(()=>historyStep('undo'),false);
+   $('sheet-redo').onclick=()=>void run(()=>historyStep('redo'),false);
    $('sheet-style').onclick=()=>void run(async()=>{
      if(!sheetSelection||sheetSelection.sheet!==sheetIndex){message('Select a range with click and Shift+click');return;}
      const range=selectedRect(sheetSelection).range;
@@ -523,9 +555,9 @@ async function commitWriter(){if(active!=='writer')return;const editor=$('text')
 async function commitSlide(){if(active!=='slides')return;const title=($('slide-title') as HTMLInputElement)?.value,body=($('slide-body') as HTMLTextAreaElement)?.value,notes=($('slide-notes') as HTMLTextAreaElement)?.value;if(title===undefined)return;const original=deck.slides[slideIndex];const slide:Slide={title,body,notes,...(original.base_source?{base_source:original.base_source}:{}),...(original.embedded_objects?.length?{embedded_objects:original.embedded_objects}:{}),...(original.object_frames?{object_frames:original.object_frames}:{})};if(JSON.stringify(slide)===JSON.stringify(original))return;deck=await invoke('deck_update',{expectedRevision:deck.revision,index:slideIndex,slide});syncDirty();$('rev').textContent=`Revision ${deck.revision}`;}
 async function flush(){if(active==='base')return;if(active==='writer')await commitWriter();if(active==='slides')await commitSlide();}
 const commands:Record<Kind,{create:string;open:string;save:string}>={writer:{create:'new_document',open:'open_document',save:'save_document'},sheets:{create:'workbook_new',open:'workbook_open',save:'workbook_save'},slides:{create:'deck_new',open:'deck_open',save:'deck_save'},base:{create:'base_create',open:'base_open',save:'base_path'}};
-async function create(){if(active==='base'){await base.create();return;}if(!confirmDiscard())return;const next=await invoke(commands[active].create);assign(next);paths[active]=null;saved[active]=revision();dirty=false;sheetIndex=slideIndex=0;refresh();}
+async function create(){if(active==='base'){await base.create();return;}if(!confirmDiscard())return;const next=await invoke(commands[active].create);assign(next);if(active==='sheets')clearSheetHistory();paths[active]=null;saved[active]=revision();dirty=false;sheetIndex=slideIndex=0;refresh();}
 function assign(next:unknown){if(active==='writer')doc=next as Doc;else if(active==='sheets')book=next as Book;else deck=next as Deck;}
-async function openFile(){if(active==='base'){await base.open();return;}if(!confirmDiscard())return;const selected=await open({multiple:false,filters:[{name:`Koffice ${labels[active]}`,extensions:[extensions[active]]}]});if(typeof selected!=='string')return;assign(await invoke(commands[active].open,{path:selected}));paths[active]=selected;saved[active]=revision();dirty=false;sheetIndex=slideIndex=0;refresh();}
+async function openFile(){if(active==='base'){await base.open();return;}if(!confirmDiscard())return;const selected=await open({multiple:false,filters:[{name:`Koffice ${labels[active]}`,extensions:[extensions[active]]}]});if(typeof selected!=='string')return;assign(await invoke(commands[active].open,{path:selected}));if(active==='sheets')clearSheetHistory();paths[active]=selected;saved[active]=revision();dirty=false;sheetIndex=slideIndex=0;refresh();}
 async function saveFile(force:boolean){if(active==='base'){message('Base saves each transaction automatically in SQLite');return;}await flush();let destination=force?null:paths[active];if(!destination)destination=await save({defaultPath:title().replace(/[\\/:*?"<>|]/g,'_')+'.'+extensions[active],filters:[{name:labels[active],extensions:[extensions[active]]}]});if(!destination)return;await invoke(commands[active].save,{path:destination});paths[active]=destination;saved[active]=revision();dirty=false;refresh();message('Saved successfully');}
 function exportData(){if(active==='base'){base.exportCsv();return;}if(active==='sheets'){const sheet=book.sheets[sheetIndex];const cells=Object.entries(sheet.cells);const maxRow=Math.min(10000,Math.max(1,...cells.map(([a])=>Number(a.match(/\d+$/)?.[0]||0))));const maxCol=Math.min(702,Math.max(1,...cells.map(([a])=>{const v=a.match(/^[A-Z]+/)?.[0]||'A';return [...v].reduce((n,c)=>n*26+c.charCodeAt(0)-64,0);})));if(maxRow*maxCol>200000){message('CSV export exceeds 200,000 cells; select a smaller sheet');return;}const rows=Array.from({length:maxRow},(_,r)=>Array.from({length:maxCol},(_,c)=>{const key=toAddress(r+1,c+1);const v=sheet.cells[key]||'';return '"'+v.replace(/"/g,'""')+'"';}).join(','));download(new Blob(['\ufeff'+rows.join('\r\n')],{type:'text/csv;charset=utf-8'}),sheet.name+'.csv');return;}
  if(active==='writer'){
@@ -577,6 +609,9 @@ applyPreferences();
 window.addEventListener('keydown',e=>{
  if(!(e.ctrlKey||e.metaKey)||e.altKey)return;
  const key=e.key.toLowerCase();
+ if(active==='sheets'&&!(e.target instanceof HTMLInputElement)&&!(e.target instanceof HTMLTextAreaElement)&&!e.shiftKey&&(key==='z'||key==='y')){
+  e.preventDefault();void run(()=>historyStep(key==='z'?'undo':'redo'),false);return;
+ }
  if(key==='s'){e.preventDefault();void run(()=>saveFile(e.shiftKey));return;}
  if(key==='o'){e.preventDefault();void run(openFile);return;}
  if(key==='n'){e.preventDefault();void run(create);return;}
